@@ -1,0 +1,2832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mutual Exclusion | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Mutual Exclusion</h1>
+            <p>CS 416 Study Guide - Topic 06</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#what-is-mutual-exclusion">What is Mutual Exclusion?</a></li>
+                <li><a href="#the-distributed-challenge">The Distributed Challenge</a></li>
+                <li><a href="#goals-and-requirements">Goals and Requirements</a></li>
+                <li><a href="#solution-1-central-server">Solution 1: Central Server Approach</a></li>
+                <li><a href="#solution-2-token-ring">Solution 2: Token Ring Algorithms</a></li>
+                <li><a href="#solution-3-ricart-agrawala">Solution 3: Ricart-Agrawala Algorithm</a></li>
+                <li><a href="#comparison-and-tradeoffs">Comparison and Trade-offs</a></li>
+                <li><a href="#exam-tips">Exam Tips and Memory Aids</a></li>
+            </ol>
+        </section>
+
+        <section id="what-is-mutual-exclusion">
+            <h2>What is Mutual Exclusion?</h2>
+
+            <div class="callout callout-info">
+                <h4>The Bathroom Key Analogy</h4>
+                <p>Imagine a shared bathroom in a busy office. Only one person can use it at a time, so there's a physical key. When you want to use the bathroom, you need to:</p>
+                <ol>
+                    <li>Find and acquire the key</li>
+                    <li>Use the bathroom (critical section)</li>
+                    <li>Return the key so others can use it</li>
+                </ol>
+            </div>
+
+            <p>In computing, the "bathroom" is a <strong>critical section</strong> - a piece of code or resource that only one process should access at a time. This could be:</p>
+            <ul>
+                <li>A shared file that multiple processes need to write to</li>
+                <li>A database record being updated</li>
+                <li>A printer being used by multiple computers</li>
+            </ul>
+
+            <div class="callout callout-success">
+                <p><strong>Key Term:</strong> <strong>Mutual Exclusion</strong> means ensuring that when one process is in the critical section, no other process can enter it.</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Mutual Exclusion Concept</h3>
+                <div style="display: flex; gap: 2rem; align-items: center; margin: 2rem 0; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 300px;">
+                        <canvas id="mutexConceptCanvas" width="400" height="300" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 400px; height: auto;"></canvas>
+                    </div>
+                    <div style="flex: 1; min-width: 250px;">
+                        <div style="background: var(--code-bg); padding: 1.5rem; border-radius: 5px; border-left: 4px solid var(--secondary-color);">
+                            <h4 style="margin-top: 0; color: var(--primary-color);">Process Queue</h4>
+                            <div id="queueDisplay" style="font-family: monospace; font-size: 0.9em;"></div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <button onclick="startMutexAnimation()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Start</button>
+                            <button onclick="pauseMutexAnimation()" style="background: var(--warning-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Pause</button>
+                            <button onclick="resetMutexAnimation()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <label>Speed: <input type="range" id="mutexSpeed" min="1" max="10" value="5" style="vertical-align: middle;"></label>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <p style="margin: 0; font-size: 0.9em;"><strong>Legend:</strong>
+                    <span style="color: #95a5a6;">⬤ Waiting</span> |
+                    <span style="color: #27ae60;">⬤ In Critical Section</span> |
+                    <span style="color: #3498db;">⬤ Exiting</span></p>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('mutexConceptCanvas');
+                const ctx = canvas.getContext('2d');
+                let animationRunning = false;
+                let animationFrame = 0;
+                let processes = [
+                    { id: 'P1', color: '#e74c3c', state: 'waiting', x: 50, y: 50, progress: 0 },
+                    { id: 'P2', color: '#3498db', state: 'waiting', x: 50, y: 110, progress: 0 },
+                    { id: 'P3', color: '#9b59b6', state: 'waiting', x: 50, y: 170, progress: 0 },
+                    { id: 'P4', color: '#f39c12', state: 'waiting', x: 50, y: 230, progress: 0 }
+                ];
+                let currentProcessIndex = 0;
+
+                function drawCriticalSection() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 3;
+                    ctx.fillRect(300, 100, 80, 100);
+                    ctx.strokeRect(300, 100, 80, 100);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Critical', 340, 140);
+                    ctx.fillText('Section', 340, 160);
+
+                    // Draw lock icon
+                    ctx.strokeStyle = '#e74c3c';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(340, 180, 8, Math.PI, 0, false);
+                    ctx.stroke();
+                    ctx.fillRect(335, 180, 10, 10);
+                }
+
+                function drawProcess(process) {
+                    let displayColor = process.color;
+                    if (process.state === 'in_cs') displayColor = '#27ae60';
+                    if (process.state === 'exiting') displayColor = '#3498db';
+                    if (process.state === 'waiting') displayColor = '#95a5a6';
+
+                    ctx.fillStyle = displayColor;
+                    ctx.beginPath();
+                    ctx.arc(process.x, process.y, 15, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(process.id, process.x, process.y + 4);
+                }
+
+                function updateQueue() {
+                    const queueDisplay = document.getElementById('queueDisplay');
+                    let html = '<div style="margin-bottom: 0.5rem;"><strong>Current State:</strong></div>';
+                    processes.forEach(p => {
+                        const stateText = p.state === 'waiting' ? 'Waiting' :
+                                        p.state === 'in_cs' ? 'IN CRITICAL SECTION' :
+                                        p.state === 'exiting' ? 'Exiting' : 'Idle';
+                        const stateColor = p.state === 'waiting' ? '#95a5a6' :
+                                         p.state === 'in_cs' ? '#27ae60' :
+                                         p.state === 'exiting' ? '#3498db' : '#bdc3c7';
+                        html += `<div style="margin: 0.3rem 0;">${p.id}: <span style="color: ${stateColor}; font-weight: bold;">${stateText}</span></div>`;
+                    });
+                    queueDisplay.innerHTML = html;
+                }
+
+                function animate() {
+                    if (!animationRunning) return;
+
+                    const speed = document.getElementById('mutexSpeed').value;
+                    animationFrame += parseInt(speed) / 5;
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    drawCriticalSection();
+
+                    const currentProcess = processes[currentProcessIndex];
+
+                    if (currentProcess.state === 'waiting' && animationFrame > 20) {
+                        currentProcess.state = 'in_cs';
+                        currentProcess.progress = 0;
+                        animationFrame = 0;
+                    } else if (currentProcess.state === 'in_cs') {
+                        currentProcess.x = 50 + (290 * (currentProcess.progress / 100));
+                        currentProcess.progress += parseInt(speed) / 2;
+
+                        if (currentProcess.progress >= 100) {
+                            currentProcess.state = 'exiting';
+                            currentProcess.progress = 0;
+                        }
+                    } else if (currentProcess.state === 'exiting') {
+                        currentProcess.progress += parseInt(speed);
+
+                        if (currentProcess.progress >= 50) {
+                            currentProcess.state = 'idle';
+                            currentProcess.x = 50;
+                            currentProcessIndex = (currentProcessIndex + 1) % processes.length;
+
+                            // Reset all to waiting except those already done
+                            processes.forEach((p, idx) => {
+                                if (idx === currentProcessIndex && p.state === 'idle') {
+                                    p.state = 'waiting';
+                                }
+                            });
+
+                            animationFrame = 0;
+                        }
+                    }
+
+                    processes.forEach(drawProcess);
+                    updateQueue();
+
+                    requestAnimationFrame(animate);
+                }
+
+                window.startMutexAnimation = function() {
+                    animationRunning = true;
+                    animate();
+                };
+
+                window.pauseMutexAnimation = function() {
+                    animationRunning = false;
+                };
+
+                window.resetMutexAnimation = function() {
+                    animationRunning = false;
+                    animationFrame = 0;
+                    currentProcessIndex = 0;
+                    processes.forEach((p, idx) => {
+                        p.state = 'waiting';
+                        p.x = 50;
+                        p.progress = 0;
+                    });
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    drawCriticalSection();
+                    processes.forEach(drawProcess);
+                    updateQueue();
+                };
+
+                // Initial draw
+                window.resetMutexAnimation();
+            })();
+            </script>
+        </section>
+
+        <section id="the-distributed-challenge">
+            <h2>The Distributed Challenge</h2>
+
+            <h3>How Regular (Non-Distributed) Mutual Exclusion Works</h3>
+            <p>On a single computer, we have it easy:</p>
+            <ul>
+                <li><strong>Shared memory</strong> - all processes can access the same memory location</li>
+                <li><strong>Hardware primitives</strong> - special CPU instructions like "test-and-set" that work atomically</li>
+                <li><strong>Operating system support</strong> - locks, semaphores, and mutexes provided by the OS</li>
+            </ul>
+
+            <p><strong>Example:</strong> Think of a simple lock variable in memory. The CPU can atomically check if it's 0 (unlocked), set it to 1 (locked), and proceed - all in one indivisible operation.</p>
+
+            <h3>Why Distributed Systems Are Different</h3>
+            <p>In a distributed system:</p>
+            <ul>
+                <li><strong>No shared memory</strong> - processes run on different machines with their own memory</li>
+                <li><strong>Only message passing</strong> - communication happens by sending messages over a network</li>
+                <li><strong>Processes may fail</strong> - nodes can crash, networks can partition</li>
+                <li><strong>Network delays are unpredictable</strong> - messages can take varying amounts of time</li>
+            </ul>
+
+            <div class="callout callout-warning">
+                <p><strong>The Core Problem:</strong> How do you coordinate access to a shared resource when you can't rely on shared memory or instantaneous communication?</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Distributed vs Non-Distributed Systems</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin: 2rem 0;">
+                    <div>
+                        <h4 style="text-align: center; color: var(--success-color);">Single Machine (Non-Distributed)</h4>
+                        <canvas id="nonDistributedCanvas" width="350" height="350" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; height: auto;"></canvas>
+                        <div style="background: rgba(39, 174, 96, 0.1); padding: 1rem; margin-top: 1rem; border-radius: 5px; border-left: 4px solid var(--success-color);">
+                            <p style="margin: 0; font-size: 0.85em;"><strong>Advantages:</strong></p>
+                            <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.85em;">
+                                <li>Shared memory access</li>
+                                <li>Atomic operations</li>
+                                <li>Instant communication</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 style="text-align: center; color: var(--warning-color);">Distributed System</h4>
+                        <canvas id="distributedCanvas" width="350" height="350" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; height: auto;"></canvas>
+                        <div style="background: rgba(243, 156, 18, 0.1); padding: 1rem; margin-top: 1rem; border-radius: 5px; border-left: 4px solid var(--warning-color);">
+                            <p style="margin: 0; font-size: 0.85em;"><strong>Challenges:</strong></p>
+                            <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.85em;">
+                                <li>No shared memory</li>
+                                <li>Network delays</li>
+                                <li>Potential failures</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: center; margin-top: 1rem;">
+                    <button onclick="animateComparison()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1em;">Animate Communication</button>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const nonDistCanvas = document.getElementById('nonDistributedCanvas');
+                const distCanvas = document.getElementById('distributedCanvas');
+                const nonDistCtx = nonDistCanvas.getContext('2d');
+                const distCtx = distCanvas.getContext('2d');
+
+                function drawNonDistributed(highlight = -1) {
+                    nonDistCtx.clearRect(0, 0, 350, 350);
+
+                    // Draw shared memory in center
+                    nonDistCtx.fillStyle = '#f39c12';
+                    nonDistCtx.fillRect(125, 125, 100, 100);
+                    nonDistCtx.strokeStyle = '#2c3e50';
+                    nonDistCtx.lineWidth = 2;
+                    nonDistCtx.strokeRect(125, 125, 100, 100);
+
+                    nonDistCtx.fillStyle = '#2c3e50';
+                    nonDistCtx.font = 'bold 14px Arial';
+                    nonDistCtx.textAlign = 'center';
+                    nonDistCtx.fillText('Shared', 175, 165);
+                    nonDistCtx.fillText('Memory', 175, 185);
+
+                    // Draw processes around it
+                    const processes = [
+                        { x: 175, y: 50, label: 'P1' },
+                        { x: 275, y: 175, label: 'P2' },
+                        { x: 175, y: 300, label: 'P3' },
+                        { x: 75, y: 175, label: 'P4' }
+                    ];
+
+                    processes.forEach((p, idx) => {
+                        nonDistCtx.fillStyle = idx === highlight ? '#27ae60' : '#3498db';
+                        nonDistCtx.beginPath();
+                        nonDistCtx.arc(p.x, p.y, 25, 0, Math.PI * 2);
+                        nonDistCtx.fill();
+                        nonDistCtx.strokeStyle = '#2c3e50';
+                        nonDistCtx.lineWidth = 2;
+                        nonDistCtx.stroke();
+
+                        nonDistCtx.fillStyle = 'white';
+                        nonDistCtx.font = 'bold 14px Arial';
+                        nonDistCtx.fillText(p.label, p.x, p.y + 5);
+
+                        // Draw arrows to shared memory
+                        if (idx === highlight) {
+                            nonDistCtx.strokeStyle = '#27ae60';
+                            nonDistCtx.lineWidth = 3;
+                            nonDistCtx.setLineDash([5, 5]);
+                        } else {
+                            nonDistCtx.strokeStyle = '#95a5a6';
+                            nonDistCtx.lineWidth = 1;
+                            nonDistCtx.setLineDash([]);
+                        }
+
+                        nonDistCtx.beginPath();
+                        const angle = Math.atan2(175 - p.y, 175 - p.x);
+                        const startX = p.x + Math.cos(angle) * 25;
+                        const startY = p.y + Math.sin(angle) * 25;
+                        const endX = 175 - Math.cos(angle) * 50;
+                        const endY = 175 - Math.sin(angle) * 50;
+                        nonDistCtx.moveTo(startX, startY);
+                        nonDistCtx.lineTo(endX, endY);
+                        nonDistCtx.stroke();
+                        nonDistCtx.setLineDash([]);
+                    });
+                }
+
+                function drawDistributed(messageFrom = -1, messageTo = -1, messageProgress = 0) {
+                    distCtx.clearRect(0, 0, 350, 350);
+
+                    // Draw machines
+                    const machines = [
+                        { x: 80, y: 80, label: 'M1' },
+                        { x: 270, y: 80, label: 'M2' },
+                        { x: 270, y: 270, label: 'M3' },
+                        { x: 80, y: 270, label: 'M4' }
+                    ];
+
+                    machines.forEach((m, idx) => {
+                        // Machine box
+                        distCtx.fillStyle = '#ecf0f1';
+                        distCtx.fillRect(m.x - 40, m.y - 40, 80, 80);
+                        distCtx.strokeStyle = '#2c3e50';
+                        distCtx.lineWidth = 2;
+                        distCtx.strokeRect(m.x - 40, m.y - 40, 80, 80);
+
+                        // Process in machine
+                        const isActive = idx === messageFrom || idx === messageTo;
+                        distCtx.fillStyle = isActive ? '#e74c3c' : '#3498db';
+                        distCtx.beginPath();
+                        distCtx.arc(m.x, m.y - 10, 15, 0, Math.PI * 2);
+                        distCtx.fill();
+
+                        distCtx.fillStyle = '#2c3e50';
+                        distCtx.font = 'bold 12px Arial';
+                        distCtx.textAlign = 'center';
+                        distCtx.fillText(m.label, m.x, m.y + 20);
+
+                        // Local memory
+                        distCtx.fillStyle = '#bdc3c7';
+                        distCtx.fillRect(m.x - 15, m.y + 5, 30, 8);
+                        distCtx.font = '8px Arial';
+                        distCtx.fillText('mem', m.x, m.y + 12);
+                    });
+
+                    // Draw network connections
+                    distCtx.strokeStyle = '#95a5a6';
+                    distCtx.lineWidth = 1;
+                    distCtx.setLineDash([3, 3]);
+                    for (let i = 0; i < machines.length; i++) {
+                        for (let j = i + 1; j < machines.length; j++) {
+                            distCtx.beginPath();
+                            distCtx.moveTo(machines[i].x, machines[i].y);
+                            distCtx.lineTo(machines[j].x, machines[j].y);
+                            distCtx.stroke();
+                        }
+                    }
+                    distCtx.setLineDash([]);
+
+                    // Draw message in transit
+                    if (messageFrom >= 0 && messageTo >= 0 && messageProgress > 0) {
+                        const from = machines[messageFrom];
+                        const to = machines[messageTo];
+                        const msgX = from.x + (to.x - from.x) * messageProgress;
+                        const msgY = from.y + (to.y - from.y) * messageProgress;
+
+                        distCtx.fillStyle = '#f39c12';
+                        distCtx.beginPath();
+                        distCtx.arc(msgX, msgY, 8, 0, Math.PI * 2);
+                        distCtx.fill();
+                        distCtx.strokeStyle = '#2c3e50';
+                        distCtx.lineWidth = 2;
+                        distCtx.stroke();
+
+                        distCtx.fillStyle = 'white';
+                        distCtx.font = 'bold 8px Arial';
+                        distCtx.textAlign = 'center';
+                        distCtx.fillText('M', msgX, msgY + 3);
+                    }
+                }
+
+                let animationRunning = false;
+                let animationStep = 0;
+
+                window.animateComparison = function() {
+                    if (animationRunning) return;
+                    animationRunning = true;
+                    animationStep = 0;
+
+                    function animate() {
+                        if (!animationRunning) return;
+
+                        // Non-distributed: cycle through processes
+                        const highlightProcess = Math.floor(animationStep / 20) % 4;
+                        drawNonDistributed(highlightProcess);
+
+                        // Distributed: show message passing
+                        const messagePhase = Math.floor(animationStep / 30) % 6;
+                        const pairs = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 2], [1, 3]];
+                        const [from, to] = pairs[messagePhase];
+                        const progress = (animationStep % 30) / 30;
+                        drawDistributed(from, to, progress);
+
+                        animationStep++;
+                        if (animationStep < 180) {
+                            setTimeout(() => requestAnimationFrame(animate), 50);
+                        } else {
+                            animationRunning = false;
+                            drawNonDistributed();
+                            drawDistributed();
+                        }
+                    }
+
+                    animate();
+                };
+
+                // Initial draw
+                drawNonDistributed();
+                drawDistributed();
+            })();
+            </script>
+        </section>
+
+        <section id="goals-and-requirements">
+            <h2>Goals and Requirements</h2>
+            <p>When designing a distributed mutual exclusion algorithm, we aim for:</p>
+
+            <h3>Primary Goals (Must Have)</h3>
+
+            <h4>1. Safety (Mutual Exclusion)</h4>
+            <ul>
+                <li>Only ONE process in critical section at any time</li>
+                <li>This is non-negotiable - violations can corrupt data</li>
+                <li><strong>Memory Aid:</strong> "Safety first! One at a time, every time."</li>
+            </ul>
+
+            <h4>2. Liveness (Progress)</h4>
+            <ul>
+                <li>If a process wants to enter the critical section, it will eventually get to</li>
+                <li>The system doesn't deadlock or stall forever</li>
+                <li><strong>Memory Aid:</strong> "Live systems keep moving forward"</li>
+            </ul>
+
+            <h4>3. Fairness (Bounded Wait & In-Order)</h4>
+            <ul>
+                <li>Processes don't starve (wait forever)</li>
+                <li>Ideally, requests are granted in the order they were made</li>
+                <li><strong>Memory Aid:</strong> "First come, first served - no cutting in line!"</li>
+            </ul>
+
+            <h3>Secondary Goals (Nice to Have)</h3>
+
+            <h4>4. Low Message Traffic</h4>
+            <ul>
+                <li>Fewer messages = less network congestion</li>
+                <li>Fewer messages = faster performance</li>
+                <li><strong>Measured in:</strong> messages per entry/exit to critical section</li>
+            </ul>
+
+            <h4>5. Low Synchronization Delay</h4>
+            <ul>
+                <li>Time between when a process requests entry and when it enters</li>
+                <li>Ideally minimal waiting time</li>
+                <li><strong>Measured in:</strong> number of message delays</li>
+            </ul>
+
+            <h4>6. Fault Tolerance</h4>
+            <ul>
+                <li>System continues working even if some nodes fail</li>
+                <li>Some algorithms are more robust than others</li>
+            </ul>
+
+            <div class="callout callout-success">
+                <h4>SLF Framework - Remember the Primary Goals</h4>
+                <ul>
+                    <li><strong>S</strong>afety (mutual exclusion)</li>
+                    <li><strong>L</strong>iveness (progress)</li>
+                    <li><strong>F</strong>airness (bounded wait, in-order)</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="solution-1-central-server">
+            <h2>Solution 1: Central Server Approach</h2>
+
+            <h3>The Idea</h3>
+            <p>One designated process acts as a "lock manager" or "central mutex server." All other processes must ask this server for permission to enter the critical section.</p>
+
+            <p><strong>Analogy:</strong> Think of a librarian holding all the keys to special reading rooms. You must ask the librarian for a key, use the room, then return the key to the librarian.</p>
+
+            <h3>How It Works</h3>
+
+            <h4>For a process to enter critical section:</h4>
+            <ol>
+                <li>Send a REQUEST message to the central server</li>
+                <li>Wait for PERMISSION (OK) message from server</li>
+                <li>Enter critical section once OK is received</li>
+            </ol>
+
+            <h4>For a process to leave critical section:</h4>
+            <ol>
+                <li>Send a RELEASE message to the central server</li>
+                <li>Server can now grant permission to next waiting process</li>
+            </ol>
+
+            <h3>Example Scenario</h3>
+            <pre><code>Client 1              Server               Client 2
+   |                     |                     |
+   |----REQUEST--------->|                     |
+   |                     |                     |
+   |<------OK------------|                     |
+   |                     |                     |
+   | [Critical Section]  |                     |
+   |                     |                     |
+   |                     |<-----REQUEST--------|
+   |                     | (queued, waiting)   |
+   |                     |                     |
+   |----RELEASE--------->|                     |
+   |                     |                     |
+   |                     |-------OK----------->|
+   |                     |                     |
+   |                     | [Critical Section]  |</code></pre>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Central Server Algorithm</h3>
+                <div style="display: flex; gap: 2rem; margin: 2rem 0; flex-wrap: wrap;">
+                    <div style="flex: 2; min-width: 400px;">
+                        <canvas id="centralServerCanvas" width="500" height="400" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 500px; height: auto;"></canvas>
+                    </div>
+                    <div style="flex: 1; min-width: 250px;">
+                        <div style="background: var(--code-bg); padding: 1.5rem; border-radius: 5px; border-left: 4px solid var(--secondary-color); margin-bottom: 1rem;">
+                            <h4 style="margin-top: 0; color: var(--primary-color);">Server Queue</h4>
+                            <div id="serverQueue" style="font-family: monospace; font-size: 0.9em;"></div>
+                        </div>
+                        <div style="background: rgba(52, 152, 219, 0.1); padding: 1rem; border-radius: 5px;">
+                            <h4 style="margin-top: 0; color: var(--primary-color); font-size: 0.95em;">Message Log</h4>
+                            <div id="messageLog" style="font-family: monospace; font-size: 0.8em; max-height: 150px; overflow-y: auto;"></div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <button onclick="startCentralServerAnimation()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Start</button>
+                            <button onclick="resetCentralServerAnimation()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <div style="padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <p style="margin: 0; font-size: 0.9em;"><strong>Message Types:</strong>
+                    <span style="color: #e74c3c;">● REQUEST</span> |
+                    <span style="color: #27ae60;">● OK</span> |
+                    <span style="color: #3498db;">● RELEASE</span></p>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('centralServerCanvas');
+                const ctx = canvas.getContext('2d');
+                let animationRunning = false;
+                let messages = [];
+                let messageLog = [];
+                let serverQueue = [];
+                let lockHolder = null;
+                let animationPhase = 0;
+
+                const server = { x: 250, y: 200, label: 'Server' };
+                const clients = [
+                    { x: 100, y: 100, label: 'C1', color: '#e74c3c' },
+                    { x: 400, y: 100, label: 'C2', color: '#3498db' },
+                    { x: 400, y: 300, label: 'C3', color: '#9b59b6' }
+                ];
+
+                function drawNode(node, highlight = false) {
+                    ctx.fillStyle = highlight ? '#f39c12' : node.color || '#2c3e50';
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, 30, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(node.label, node.x, node.y + 5);
+                }
+
+                function drawMessage(msg) {
+                    const dx = msg.to.x - msg.from.x;
+                    const dy = msg.to.y - msg.from.y;
+                    const x = msg.from.x + dx * msg.progress;
+                    const y = msg.from.y + dy * msg.progress;
+
+                    // Arrow
+                    ctx.strokeStyle = msg.color;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(msg.from.x, msg.from.y);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // Arrowhead
+                    const angle = Math.atan2(dy, dx);
+                    ctx.fillStyle = msg.color;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x - 10 * Math.cos(angle - Math.PI / 6), y - 10 * Math.sin(angle - Math.PI / 6));
+                    ctx.lineTo(x - 10 * Math.cos(angle + Math.PI / 6), y - 10 * Math.sin(angle + Math.PI / 6));
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Label
+                    ctx.fillStyle = msg.color;
+                    ctx.font = 'bold 12px Arial';
+                    ctx.fillText(msg.label, x + 15, y - 10);
+                }
+
+                function addMessage(from, to, label, color) {
+                    messages.push({ from, to, label, color, progress: 0 });
+                    logMessage(`${from.label} → ${to.label}: ${label}`);
+                }
+
+                function logMessage(text) {
+                    messageLog.push(text);
+                    const logDiv = document.getElementById('messageLog');
+                    logDiv.innerHTML = messageLog.slice(-8).map(m => `<div>${m}</div>`).join('');
+                    logDiv.scrollTop = logDiv.scrollHeight;
+                }
+
+                function updateQueueDisplay() {
+                    const queueDiv = document.getElementById('serverQueue');
+                    let html = '<div style="margin-bottom: 0.5rem;"><strong>Lock Holder:</strong> ' +
+                               (lockHolder ? lockHolder.label : 'None') + '</div>';
+                    html += '<div style="margin-bottom: 0.5rem;"><strong>Waiting:</strong></div>';
+                    if (serverQueue.length === 0) {
+                        html += '<div style="color: #95a5a6;">Queue empty</div>';
+                    } else {
+                        serverQueue.forEach(c => {
+                            html += `<div style="margin: 0.3rem 0;">→ ${c.label}</div>`;
+                        });
+                    }
+                    queueDiv.innerHTML = html;
+                }
+
+                function draw() {
+                    ctx.clearRect(0, 0, 500, 400);
+
+                    // Draw connections
+                    ctx.strokeStyle = '#bdc3c7';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([3, 3]);
+                    clients.forEach(c => {
+                        ctx.beginPath();
+                        ctx.moveTo(server.x, server.y);
+                        ctx.lineTo(c.x, c.y);
+                        ctx.stroke();
+                    });
+                    ctx.setLineDash([]);
+
+                    // Draw nodes
+                    drawNode(server);
+                    clients.forEach(c => drawNode(c, c === lockHolder));
+
+                    // Draw messages
+                    messages.forEach(drawMessage);
+                }
+
+                function animate() {
+                    if (!animationRunning) return;
+
+                    // Update message positions
+                    messages = messages.filter(msg => {
+                        msg.progress += 0.03;
+                        return msg.progress < 1;
+                    });
+
+                    // Animation sequence
+                    if (animationPhase === 0) {
+                        // C1 requests
+                        addMessage(clients[0], server, 'REQUEST', '#e74c3c');
+                        serverQueue.push(clients[0]);
+                        animationPhase++;
+                    } else if (animationPhase === 30) {
+                        // Server grants to C1
+                        addMessage(server, clients[0], 'OK', '#27ae60');
+                        lockHolder = serverQueue.shift();
+                        animationPhase++;
+                    } else if (animationPhase === 50) {
+                        // C2 requests while C1 has lock
+                        addMessage(clients[1], server, 'REQUEST', '#e74c3c');
+                        serverQueue.push(clients[1]);
+                        logMessage('C2 must wait (C1 has lock)');
+                        animationPhase++;
+                    } else if (animationPhase === 90) {
+                        // C1 releases
+                        addMessage(clients[0], server, 'RELEASE', '#3498db');
+                        lockHolder = null;
+                        animationPhase++;
+                    } else if (animationPhase === 110) {
+                        // Server grants to C2
+                        addMessage(server, clients[1], 'OK', '#27ae60');
+                        lockHolder = serverQueue.shift();
+                        animationPhase++;
+                    } else if (animationPhase === 150) {
+                        // C2 releases
+                        addMessage(clients[1], server, 'RELEASE', '#3498db');
+                        lockHolder = null;
+                        animationPhase++;
+                    } else if (animationPhase > 180) {
+                        animationRunning = false;
+                        logMessage('--- Animation Complete ---');
+                    } else {
+                        animationPhase++;
+                    }
+
+                    updateQueueDisplay();
+                    draw();
+
+                    if (animationRunning) {
+                        setTimeout(() => requestAnimationFrame(animate), 50);
+                    }
+                }
+
+                window.startCentralServerAnimation = function() {
+                    if (animationRunning) return;
+                    resetCentralServerAnimation();
+                    animationRunning = true;
+                    animate();
+                };
+
+                window.resetCentralServerAnimation = function() {
+                    animationRunning = false;
+                    messages = [];
+                    messageLog = [];
+                    serverQueue = [];
+                    lockHolder = null;
+                    animationPhase = 0;
+                    updateQueueDisplay();
+                    draw();
+                    document.getElementById('messageLog').innerHTML = '';
+                };
+
+                // Initial draw
+                resetCentralServerAnimation();
+            })();
+            </script>
+
+            <h3>Analysis</h3>
+
+            <h4>Advantages:</h4>
+            <ul>
+                <li><strong>Simple to understand and implement</strong> - just one coordinator</li>
+                <li><strong>Only 3 messages per critical section</strong> - REQUEST, OK, RELEASE</li>
+                <li><strong>Works well</strong> for small-scale systems</li>
+            </ul>
+
+            <h4>Disadvantages:</h4>
+            <ul>
+                <li><strong>Single point of failure</strong> - if server crashes, entire system stops</li>
+                <li><strong>Performance bottleneck</strong> - all requests go through one node</li>
+                <li><strong>Cannot guarantee in-order fairness</strong> - in asynchronous networks, messages can arrive out of order</li>
+                <li><strong>Requires leader election</strong> - need to choose/elect the central server</li>
+            </ul>
+
+            <div class="callout callout-info">
+                <p><strong>Memory Aid: "Central Server = Simple but Fragile"</strong></p>
+                <ul>
+                    <li>Central = bottleneck and single point of failure</li>
+                    <li>Simple = easy to understand, only 3 messages</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="solution-2-token-ring">
+            <h2>Solution 2: Token Ring Algorithms</h2>
+
+            <h3>Basic Token Ring</h3>
+
+            <p><strong>The Idea:</strong> Processes are arranged in a logical ring. A special "token" message circulates around the ring. You can only enter the critical section if you currently hold the token.</p>
+
+            <p><strong>Analogy:</strong> Imagine a classroom where a special "speaking ball" is passed around in a circle. Only the person holding the ball can speak (enter critical section).</p>
+
+            <h3>How It Works</h3>
+            <ol>
+                <li>Processes are organized in a logical ring: P1 -> P2 -> P3 -> P1</li>
+                <li>A token message continuously circulates around the ring</li>
+                <li>When you receive the token:
+                    <ul>
+                        <li>If you want to enter critical section: hold the token, enter CS</li>
+                        <li>If you don't need it: pass the token to next process</li>
+                    </ul>
+                </li>
+                <li>After leaving critical section: pass the token along</li>
+            </ol>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Basic Token Ring</h3>
+                <div style="display: flex; gap: 2rem; align-items: center; margin: 2rem 0; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 350px;">
+                        <canvas id="tokenRingCanvas" width="400" height="400" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 400px; height: auto;"></canvas>
+                    </div>
+                    <div style="flex: 1; min-width: 250px;">
+                        <div style="background: var(--code-bg); padding: 1.5rem; border-radius: 5px; border-left: 4px solid var(--secondary-color);">
+                            <h4 style="margin-top: 0; color: var(--primary-color);">Token Status</h4>
+                            <div id="tokenStatus" style="font-family: monospace; font-size: 0.9em;"></div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <button onclick="startTokenRing()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Start</button>
+                            <button onclick="pauseTokenRing()" style="background: var(--warning-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Pause</button>
+                            <button onclick="resetTokenRing()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <label>Speed: <input type="range" id="tokenSpeed" min="1" max="10" value="5" style="vertical-align: middle;"></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('tokenRingCanvas');
+                const ctx = canvas.getContext('2d');
+                let animationRunning = false;
+                let tokenPosition = 0; // 0-4 for nodes
+                let tokenProgress = 0; // 0-1 for transition between nodes
+                let currentNodeHoldingToken = 0;
+                let nodeStates = [false, true, false, true, false]; // true = wants CS
+
+                const centerX = 200;
+                const centerY = 200;
+                const radius = 120;
+                const nodes = [];
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
+                    nodes.push({
+                        x: centerX + radius * Math.cos(angle),
+                        y: centerY + radius * Math.sin(angle),
+                        label: 'P' + (i + 1),
+                        angle: angle
+                    });
+                }
+
+                function drawNode(node, idx, hasToken, inCS) {
+                    ctx.fillStyle = inCS ? '#27ae60' : hasToken ? '#f39c12' : '#3498db';
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, 25, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(node.label, node.x, node.y + 5);
+
+                    // Show if wants CS
+                    if (nodeStates[idx]) {
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.beginPath();
+                        ctx.arc(node.x + 18, node.y - 18, 6, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+
+                function drawToken(x, y) {
+                    ctx.fillStyle = '#f39c12';
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+
+                    // Star shape for token
+                    ctx.beginPath();
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
+                        const r = i % 2 === 0 ? 12 : 6;
+                        const px = x + r * Math.cos(angle);
+                        const py = y + r * Math.sin(angle);
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+
+                function drawArrows() {
+                    ctx.strokeStyle = '#95a5a6';
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.lineWidth = 2;
+
+                    for (let i = 0; i < 5; i++) {
+                        const nextIdx = (i + 1) % 5;
+                        const angle = nodes[i].angle + (2 * Math.PI / 5) / 2;
+                        const arrowX = centerX + (radius - 10) * Math.cos(angle);
+                        const arrowY = centerY + (radius - 10) * Math.sin(angle);
+
+                        // Arrow
+                        ctx.beginPath();
+                        ctx.moveTo(arrowX, arrowY);
+                        ctx.lineTo(arrowX - 8 * Math.cos(angle - Math.PI / 6),
+                                   arrowY - 8 * Math.sin(angle - Math.PI / 6));
+                        ctx.lineTo(arrowX - 8 * Math.cos(angle + Math.PI / 6),
+                                   arrowY - 8 * Math.sin(angle + Math.PI / 6));
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+
+                function updateStatus() {
+                    const statusDiv = document.getElementById('tokenStatus');
+                    let html = '<div style="margin-bottom: 0.5rem;"><strong>Token at:</strong> ' + nodes[currentNodeHoldingToken].label + '</div>';
+                    html += '<div style="margin-bottom: 0.5rem;"><strong>Nodes wanting CS:</strong></div>';
+                    nodeStates.forEach((wants, idx) => {
+                        if (wants) {
+                            html += `<div style="color: #e74c3c;">• ${nodes[idx].label}</div>`;
+                        }
+                    });
+                    statusDiv.innerHTML = html;
+                }
+
+                function draw() {
+                    ctx.clearRect(0, 0, 400, 400);
+
+                    // Draw ring
+                    ctx.strokeStyle = '#bdc3c7';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    drawArrows();
+
+                    // Draw nodes
+                    nodes.forEach((node, idx) => {
+                        const hasToken = idx === currentNodeHoldingToken && tokenProgress === 0;
+                        const inCS = hasToken && nodeStates[idx];
+                        drawNode(node, idx, hasToken, inCS);
+                    });
+
+                    // Draw token in transit
+                    if (tokenProgress > 0) {
+                        const fromNode = nodes[currentNodeHoldingToken];
+                        const toNode = nodes[(currentNodeHoldingToken + 1) % 5];
+                        const x = fromNode.x + (toNode.x - fromNode.x) * tokenProgress;
+                        const y = fromNode.y + (toNode.y - fromNode.y) * tokenProgress;
+                        drawToken(x, y);
+                    }
+
+                    updateStatus();
+                }
+
+                function animate() {
+                    if (!animationRunning) return;
+
+                    const speed = document.getElementById('tokenSpeed').value / 50;
+
+                    // If current node wants CS, hold token
+                    if (nodeStates[currentNodeHoldingToken] && tokenProgress === 0) {
+                        // Hold for a moment
+                        setTimeout(() => {
+                            nodeStates[currentNodeHoldingToken] = false; // Used CS
+                            tokenProgress = 0.01;
+                        }, 1000 / speed);
+                    } else {
+                        tokenProgress += speed;
+                        if (tokenProgress >= 1) {
+                            currentNodeHoldingToken = (currentNodeHoldingToken + 1) % 5;
+                            tokenProgress = 0;
+                        }
+                    }
+
+                    draw();
+                    requestAnimationFrame(animate);
+                }
+
+                window.startTokenRing = function() {
+                    animationRunning = true;
+                    animate();
+                };
+
+                window.pauseTokenRing = function() {
+                    animationRunning = false;
+                };
+
+                window.resetTokenRing = function() {
+                    animationRunning = false;
+                    tokenPosition = 0;
+                    tokenProgress = 0;
+                    currentNodeHoldingToken = 0;
+                    nodeStates = [false, true, false, true, false];
+                    draw();
+                };
+
+                // Initial draw
+                draw();
+            })();
+            </script>
+
+            <h3>Problems with Basic Token Ring</h3>
+            <ol>
+                <li><strong>Not in-order (unfair):</strong>
+                    <ul>
+                        <li>If P3 wants in, but token is at P1, P3 must wait for token to go: P1 -> P2 -> P3</li>
+                        <li>But if P1 also wants in during this time, P1 gets in first (even though P3 asked first)</li>
+                    </ul>
+                </li>
+                <li><strong>Long synchronization delay:</strong>
+                    <ul>
+                        <li>Worst case: wait for N-1 message hops (where N = number of processes)</li>
+                        <li>If you just passed the token, you must wait for it to go all the way around</li>
+                    </ul>
+                </li>
+                <li><strong>Very unreliable:</strong>
+                    <ul>
+                        <li>If ANY process fails, the ring breaks</li>
+                        <li>Token can be lost</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Fair Token Ring Algorithm</h3>
+            <p>To fix the fairness problem, we add timestamps to the token:</p>
+
+            <h4>Token contains:</h4>
+            <ul>
+                <li><code>t</code> = timestamp of the earliest known outstanding request (or null if no requests)</li>
+            </ul>
+
+            <h4>Algorithm:</h4>
+
+            <p><strong>When you want to enter critical section:</strong></p>
+            <ol>
+                <li>Stamp your request with current time <code>Tr</code></li>
+                <li>Wait for the token</li>
+            </ol>
+
+            <p><strong>When you receive token with time <code>t</code> while waiting with request time <code>Tr</code>:</strong></p>
+            <ul>
+                <li><strong>If <code>Tr == t</code>:</strong> This is your request! Hold token, enter critical section</li>
+                <li><strong>If <code>Tr > t</code>:</strong> Someone else has earlier request. Pass token along.</li>
+                <li><strong>If <code>t</code> is null or <code>Tr < t</code>:</strong> Your request is earliest! Set token time to <code>Tr</code>, pass token, keep waiting</li>
+            </ul>
+
+            <p><strong>When leaving critical section:</strong></p>
+            <ul>
+                <li>Set token time to null</li>
+                <li>Pass token along</li>
+            </ul>
+
+            <div class="callout callout-success">
+                <p><strong>Why this works:</strong> The token "remembers" the earliest pending request and ensures that request gets served first.</p>
+            </div>
+
+            <h3>Example: Fair Token Ring</h3>
+            <p><strong>Scenario:</strong> 4 nodes (A, B, C, D) in a ring. Token starts at A with <code>t = null</code>.</p>
+
+            <h4>Step 1: B wants in at time 5</h4>
+            <pre><code>A[T:null] -> B[request@5] -> C[T:null] -> D[T:null]
+                ↑
+              sets T:5</code></pre>
+
+            <h4>Step 2: Token circulates, B enters CS when token returns with T:5</h4>
+            <pre><code>A -> B[T:5] -> C -> D -> A -> B (enters CS!)</code></pre>
+
+            <h4>Step 3: While B is in CS, D requests at time 3 (earlier!)</h4>
+            <pre><code>A -> B[in CS, T:5] -> C -> D[request@3]</code></pre>
+
+            <h4>Step 4: B finishes, sets T:null, passes token</h4>
+            <pre><code>Token goes: C -> D
+D receives token, sees its request@3 < null, sets T:3</code></pre>
+
+            <h4>Step 5: Token continues until it comes back to D</h4>
+            <pre><code>Token: D[sets T:3] -> A -> B -> C -> D (enters CS!)</code></pre>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Fair Token Ring with Timestamps</h3>
+                <div style="display: flex; gap: 2rem; margin: 2rem 0; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 350px;">
+                        <canvas id="fairTokenRingCanvas" width="400" height="400" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 400px; height: auto;"></canvas>
+                    </div>
+                    <div style="flex: 1; min-width: 250px;">
+                        <div style="background: var(--code-bg); padding: 1.5rem; border-radius: 5px; border-left: 4px solid var(--secondary-color); margin-bottom: 1rem;">
+                            <h4 style="margin-top: 0; color: var(--primary-color);">Current Step</h4>
+                            <div id="fairTokenStep" style="font-family: monospace; font-size: 0.85em;"></div>
+                        </div>
+                        <div style="margin-top: 1rem;">
+                            <button onclick="nextFairTokenStep()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Next Step</button>
+                            <button onclick="resetFairToken()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('fairTokenRingCanvas');
+                const ctx = canvas.getContext('2d');
+                let step = 0;
+
+                const centerX = 200, centerY = 200, radius = 120;
+                const nodes = ['A', 'B', 'C', 'D'].map((label, i) => {
+                    const angle = (i * 2 * Math.PI / 4) - Math.PI / 2;
+                    return {
+                        x: centerX + radius * Math.cos(angle),
+                        y: centerY + radius * Math.sin(angle),
+                        label,
+                        requestTime: null,
+                        state: 'idle'
+                    };
+                });
+
+                let tokenPos = 0;
+                let tokenTime = null;
+
+                const steps = [
+                    { desc: 'Initial: Token at A with T=null', action: () => { tokenPos = 0; tokenTime = null; } },
+                    { desc: 'B requests at time 5', action: () => { nodes[1].requestTime = 5; nodes[1].state = 'waiting'; } },
+                    { desc: 'Token at B, B sees request@5 < null, sets T=5', action: () => { tokenPos = 1; tokenTime = 5; } },
+                    { desc: 'Token continues: C → D → A', action: () => { tokenPos = 2; } },
+                    { desc: 'Token at A with T=5', action: () => { tokenPos = 0; } },
+                    { desc: 'Token returns to B with T=5, B enters CS!', action: () => { tokenPos = 1; nodes[1].state = 'in_cs'; } },
+                    { desc: 'B exits CS, sets T=null', action: () => { nodes[1].state = 'idle'; nodes[1].requestTime = null; tokenTime = null; } }
+                ];
+
+                function drawFairToken() {
+                    ctx.clearRect(0, 0, 400, 400);
+
+                    // Ring
+                    ctx.strokeStyle = '#bdc3c7';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Nodes
+                    nodes.forEach((node, idx) => {
+                        const isToken = idx === tokenPos;
+                        ctx.fillStyle = node.state === 'in_cs' ? '#27ae60' :
+                                       node.state === 'waiting' ? '#f39c12' :
+                                       isToken ? '#3498db' : '#95a5a6';
+                        ctx.beginPath();
+                        ctx.arc(node.x, node.y, 30, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(node.label, node.x, node.y + 5);
+
+                        // Show request time
+                        if (node.requestTime !== null) {
+                            ctx.fillStyle = '#e74c3c';
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillText('@' + node.requestTime, node.x, node.y + 50);
+                        }
+
+                        // Show token time
+                        if (isToken && tokenTime !== null) {
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillText('T=' + tokenTime, node.x, node.y - 45);
+                        } else if (isToken) {
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = 'bold 12px Arial';
+                            ctx.fillText('T=null', node.x, node.y - 45);
+                        }
+                    });
+                }
+
+                function updateStepDisplay() {
+                    const stepDiv = document.getElementById('fairTokenStep');
+                    stepDiv.innerHTML = `<div><strong>Step ${step}/${steps.length - 1}:</strong></div><div style="margin-top: 0.5rem;">${steps[step].desc}</div>`;
+                }
+
+                window.nextFairTokenStep = function() {
+                    if (step < steps.length - 1) {
+                        step++;
+                        steps[step].action();
+                        drawFairToken();
+                        updateStepDisplay();
+                    }
+                };
+
+                window.resetFairToken = function() {
+                    step = 0;
+                    nodes.forEach(n => { n.requestTime = null; n.state = 'idle'; });
+                    tokenPos = 0;
+                    tokenTime = null;
+                    steps[0].action();
+                    drawFairToken();
+                    updateStepDisplay();
+                };
+
+                resetFairToken();
+            })();
+            </script>
+
+            <h3>Analysis</h3>
+
+            <h4>Advantages (Fair version):</h4>
+            <ul>
+                <li><strong>Achieves in-order fairness</strong> - earliest request gets served first</li>
+                <li><strong>Decentralized</strong> - no single point of failure (sort of)</li>
+            </ul>
+
+            <h4>Disadvantages:</h4>
+            <ul>
+                <li><strong>Long synchronization delay</strong> - up to N-1 message hops</li>
+                <li><strong>Still unreliable</strong> - any single node failure breaks the ring</li>
+                <li><strong>Continuous message traffic</strong> - token always circulating, even if no one wants CS</li>
+            </ul>
+
+            <div class="callout callout-warning">
+                <p><strong>Memory Aid: "Token Ring = Fair but Fragile Ring"</strong></p>
+                <ul>
+                    <li>Fair = in-order with timestamps</li>
+                    <li>Fragile = any node failure breaks everything</li>
+                    <li>Ring = circular, continuous token passing</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="solution-3-ricart-agrawala">
+            <h2>Solution 3: Ricart-Agrawala Algorithm</h2>
+
+            <div class="callout callout-info">
+                <p><strong>Important:</strong> This is the most important algorithm for the exam. It's elegant, fair, and fully distributed.</p>
+            </div>
+
+            <h3>Prerequisites: Lamport Clocks</h3>
+            <p>Before we dive in, you need to understand <strong>Lamport (scalar) logical clocks</strong>:</p>
+
+            <p><strong>Purpose:</strong> Create a consistent ordering of events across distributed processes without synchronized physical clocks.</p>
+
+            <h4>Rules:</h4>
+            <ol>
+                <li>Each process has a local counter <code>T</code> (starts at 0)</li>
+                <li>Increment <code>T</code> before each local event: <code>T = T + 1</code></li>
+                <li>When sending message m: attach current timestamp <code>Tm = T</code></li>
+                <li>When receiving message m with timestamp <code>Tm</code>: update <code>T = max(T, Tm) + 1</code></li>
+            </ol>
+
+            <h4>Key Properties:</h4>
+            <ul>
+                <li>If event <code>e</code> happens before event <code>e'</code> (causally), then <code>T(e) < T(e')</code></li>
+                <li>If <code>T(e) == T(e')</code> for different processes, use process IDs to break ties</li>
+            </ul>
+
+            <h4>Example:</h4>
+            <pre><code>Process 1: T=0 -> event -> T=1 -> send msg[T:1] -> T=2
+Process 2: T=0 -> receive msg[T:1] -> T=max(0,1)+1=2 -> event -> T=3</code></pre>
+
+            <p>This ensures a total ordering of all events across all processes.</p>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Lamport Clocks</h3>
+                <canvas id="lamportCanvas" width="700" height="300" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 700px; height: auto; margin: 1rem 0;"></canvas>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+                    <button onclick="stepLamport()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Next Event</button>
+                    <button onclick="resetLamport()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                    <div id="lamportInfo" style="flex: 1; min-width: 300px; background: var(--code-bg); padding: 0.75rem; border-radius: 5px; font-family: monospace; font-size: 0.85em;"></div>
+                </div>
+                <div style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <p style="margin: 0; font-size: 0.9em;"><strong>Event Types:</strong>
+                    <span style="color: #3498db;">⬤ Local Event (T++)</span> |
+                    <span style="color: #27ae60;">⬤ Send (attach T)</span> |
+                    <span style="color: #f39c12;">⬤ Receive (T=max(T,Tm)+1)</span></p>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('lamportCanvas');
+                const ctx = canvas.getContext('2d');
+                let eventIndex = 0;
+
+                const processes = [
+                    { label: 'P1', y: 60, clock: 0, events: [] },
+                    { label: 'P2', y: 150, clock: 0, events: [] },
+                    { label: 'P3', y: 240, clock: 0, events: [] }
+                ];
+
+                const timeline = [
+                    { type: 'local', process: 0, desc: 'P1: Local event' },
+                    { type: 'send', process: 0, to: 1, desc: 'P1 sends msg to P2 (T=1)' },
+                    { type: 'local', process: 1, desc: 'P2: Local event' },
+                    { type: 'receive', process: 1, from: 0, timestamp: 1, desc: 'P2 receives from P1 (Tm=1)' },
+                    { type: 'send', process: 1, to: 2, desc: 'P2 sends msg to P3 (T=3)' },
+                    { type: 'local', process: 2, desc: 'P3: Local event' },
+                    { type: 'receive', process: 2, from: 1, timestamp: 3, desc: 'P3 receives from P2 (Tm=3)' },
+                    { type: 'local', process: 0, desc: 'P1: Local event' }
+                ];
+
+                function drawLamport() {
+                    ctx.clearRect(0, 0, 700, 300);
+
+                    // Draw processes and timelines
+                    processes.forEach((proc, idx) => {
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(proc.label, 10, proc.y + 5);
+
+                        // Timeline
+                        ctx.strokeStyle = '#bdc3c7';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(60, proc.y);
+                        ctx.lineTo(680, proc.y);
+                        ctx.stroke();
+
+                        // Clock value
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.fillText('T=' + proc.clock, 10, proc.y + 20);
+                    });
+
+                    // Draw events
+                    processes.forEach((proc, pidx) => {
+                        proc.events.forEach((evt, eidx) => {
+                            const x = 80 + eidx * 80;
+                            const y = proc.y;
+
+                            // Event circle
+                            ctx.fillStyle = evt.type === 'local' ? '#3498db' :
+                                           evt.type === 'send' ? '#27ae60' :
+                                           '#f39c12';
+                            ctx.beginPath();
+                            ctx.arc(x, y, 12, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.strokeStyle = '#2c3e50';
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+
+                            // Clock value
+                            ctx.fillStyle = 'white';
+                            ctx.font = 'bold 10px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(evt.clock, x, y + 3);
+                        });
+                    });
+
+                    // Draw messages
+                    processes.forEach((proc, pidx) => {
+                        proc.events.forEach((evt, eidx) => {
+                            if (evt.type === 'send' && evt.toProcess !== undefined) {
+                                const fromX = 80 + eidx * 80;
+                                const fromY = proc.y;
+
+                                // Find receive event
+                                const toProc = processes[evt.toProcess];
+                                const receiveIdx = toProc.events.findIndex(e =>
+                                    e.type === 'receive' && e.fromProcess === pidx && e.receivedTime === evt.clock
+                                );
+
+                                if (receiveIdx >= 0) {
+                                    const toX = 80 + receiveIdx * 80;
+                                    const toY = toProc.y;
+
+                                    ctx.strokeStyle = '#95a5a6';
+                                    ctx.lineWidth = 2;
+                                    ctx.setLineDash([3, 3]);
+                                    ctx.beginPath();
+                                    ctx.moveTo(fromX, fromY);
+                                    ctx.lineTo(toX, toY);
+                                    ctx.stroke();
+                                    ctx.setLineDash([]);
+
+                                    // Arrow
+                                    const angle = Math.atan2(toY - fromY, toX - fromX);
+                                    ctx.fillStyle = '#95a5a6';
+                                    ctx.beginPath();
+                                    ctx.moveTo(toX, toY);
+                                    ctx.lineTo(toX - 10 * Math.cos(angle - Math.PI / 6), toY - 10 * Math.sin(angle - Math.PI / 6));
+                                    ctx.lineTo(toX - 10 * Math.cos(angle + Math.PI / 6), toY - 10 * Math.sin(angle + Math.PI / 6));
+                                    ctx.closePath();
+                                    ctx.fill();
+
+                                    // Label
+                                    ctx.fillStyle = '#2c3e50';
+                                    ctx.font = '10px Arial';
+                                    ctx.fillText('T=' + evt.clock, (fromX + toX) / 2, (fromY + toY) / 2 - 5);
+                                }
+                            }
+                        });
+                    });
+                }
+
+                function updateInfo(desc) {
+                    document.getElementById('lamportInfo').innerHTML = `<strong>Event ${eventIndex}:</strong> ${desc}`;
+                }
+
+                window.stepLamport = function() {
+                    if (eventIndex >= timeline.length) return;
+
+                    const event = timeline[eventIndex];
+                    const proc = processes[event.process];
+
+                    if (event.type === 'local') {
+                        proc.clock++;
+                        proc.events.push({ type: 'local', clock: proc.clock });
+                    } else if (event.type === 'send') {
+                        proc.clock++;
+                        proc.events.push({ type: 'send', clock: proc.clock, toProcess: event.to });
+                    } else if (event.type === 'receive') {
+                        proc.clock = Math.max(proc.clock, event.timestamp) + 1;
+                        proc.events.push({ type: 'receive', clock: proc.clock, fromProcess: event.from, receivedTime: event.timestamp });
+                    }
+
+                    updateInfo(event.desc);
+                    drawLamport();
+                    eventIndex++;
+                };
+
+                window.resetLamport = function() {
+                    eventIndex = 0;
+                    processes.forEach(p => { p.clock = 0; p.events = []; });
+                    drawLamport();
+                    updateInfo('Click "Next Event" to start');
+                };
+
+                resetLamport();
+            })();
+            </script>
+
+            <h3>The Core Idea</h3>
+            <p><strong>Instead of asking one central server or waiting for a token, ask ALL other processes for permission.</strong></p>
+
+            <p>When you want to enter critical section:</p>
+            <ol>
+                <li>Send timestamped REQUEST to ALL other processes</li>
+                <li>Wait for REPLY from ALL other processes</li>
+                <li>Once you have all replies, enter critical section</li>
+            </ol>
+
+            <div class="callout callout-success">
+                <p><strong>The Trick:</strong> A process with an earlier pending request delays replying to later requests until it finishes its critical section.</p>
+            </div>
+
+            <p><strong>Analogy:</strong> Imagine a group of friends trying to use a shared car. Instead of a single person holding the keys, everyone must agree. If you want the car, you text everyone. If someone else already asked first (earlier timestamp), they won't reply to you until they're done with the car.</p>
+
+            <h3>State Variables</h3>
+            <p>Each process maintains:</p>
+            <ul>
+                <li><code>N</code> = total number of processes</li>
+                <li><code>me</code> = my process ID</li>
+                <li><code>PEERS</code> = set of all other process IDs</li>
+                <li><code>requesting_or_holding</code> = boolean, am I currently requesting or holding the lock?</li>
+                <li><code>REPLIED</code> = set of processes that have replied to my current request</li>
+                <li><code>DEFERRED</code> = set of processes whose replies I'm deferring</li>
+                <li><code>T</code> = my Lamport clock</li>
+                <li><code>T_req</code> = timestamp of my current request</li>
+            </ul>
+
+            <h3>Messages</h3>
+            <ul>
+                <li><code>REQUEST(sender_id, timestamp)</code> - I want to enter CS</li>
+                <li><code>REPLY(sender_id)</code> - OK, you can proceed</li>
+            </ul>
+
+            <h3>The Algorithm: Requesting Process</h3>
+
+            <h4>To ACQUIRE the lock:</h4>
+            <pre><code>ApplicationThread:
+  lock(mutex)  // protect shared state
+  requesting_or_holding = true
+  T = T + 1  // increment Lamport clock
+  T_req = T  // remember request timestamp
+  REPLIED = {}  // clear reply set
+  DEFERRED = {}  // clear deferred set
+
+  for each j in PEERS:
+    send REQUEST(me, T_req) to j
+
+  unlock(mutex)
+
+  wait until REPLIED == PEERS  // wait for all N-1 replies
+
+  // Now we can enter critical section!
+  return</code></pre>
+
+            <h4>To RELEASE the lock:</h4>
+            <pre><code>ApplicationThread:
+  lock(mutex)
+  requesting_or_holding = false
+
+  for each j in DEFERRED:
+    send REPLY(me) to j  // send deferred replies
+
+  DEFERRED = {}
+  unlock(mutex)
+  return</code></pre>
+
+            <h3>The Algorithm: Responding to Requests</h3>
+            <h4>NetworkThread (runs continuously):</h4>
+            <pre><code>while true:
+  (type, sender, T_msg) = receive_message()
+
+  lock(mutex)
+  T = max(T, T_msg) + 1  // update Lamport clock
+
+  if type == REPLY:
+    REPLIED = REPLIED U {sender}  // add to reply set
+
+  else if type == REQUEST:
+    // Should we defer this reply?
+    if (requesting_or_holding &&
+        (T_req < T_msg ||  // my request is earlier
+         (T_req == T_msg && me < sender))):  // same time, lower ID wins
+      DEFERRED = DEFERRED U {sender}  // defer reply
+    else:
+      send REPLY(me) to sender  // reply immediately
+
+  unlock(mutex)</code></pre>
+
+            <h3>The Key Logic: When to Defer</h3>
+            <p>When you receive a REQUEST from another process, you defer your REPLY if:</p>
+
+            <ol>
+                <li><strong>You are currently requesting or holding the lock yourself</strong> (<code>requesting_or_holding == true</code>)</li>
+                <li>AND</li>
+                <li><strong>Your request has priority:</strong>
+                    <ul>
+                        <li><strong>Your timestamp is earlier</strong> (<code>T_req < T_msg</code>), OR</li>
+                        <li><strong>Same timestamp but your ID is smaller</strong> (<code>T_req == T_msg && me < sender</code>)</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <p>Otherwise, you reply immediately.</p>
+
+            <div class="callout callout-success">
+                <h4>Why this works:</h4>
+                <ul>
+                    <li>If you're not interested in the lock, you always reply immediately</li>
+                    <li>If you both want it, the one with the earlier timestamp gets priority</li>
+                    <li>Timestamps ensure a total ordering, so deadlock is impossible</li>
+                </ul>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Ricart-Agrawala Decision Flow</h3>
+                <canvas id="raFlowCanvas" width="600" height="500" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 600px; height: auto; margin: 1rem 0;"></canvas>
+                <div style="margin-top: 1rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 0.5rem;">My State:</label>
+                            <select id="myState" onchange="updateRAFlow()" style="width: 100%; padding: 0.5rem; border-radius: 5px; border: 1px solid var(--border-color);">
+                                <option value="idle">Not Requesting</option>
+                                <option value="requesting">Requesting/Holding</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 0.5rem;">My T_req:</label>
+                            <input type="number" id="myTreq" value="5" onchange="updateRAFlow()" style="width: 100%; padding: 0.5rem; border-radius: 5px; border: 1px solid var(--border-color);">
+                        </div>
+                        <div>
+                            <label style="display: block; font-weight: bold; margin-bottom: 0.5rem;">Received T_msg:</label>
+                            <input type="number" id="theirTmsg" value="3" onchange="updateRAFlow()" style="width: 100%; padding: 0.5rem; border-radius: 5px; border: 1px solid var(--border-color);">
+                        </div>
+                    </div>
+                    <div id="raDecision" style="background: var(--code-bg); padding: 1rem; border-radius: 5px; border-left: 4px solid var(--secondary-color); font-family: monospace; font-size: 0.9em;"></div>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('raFlowCanvas');
+                const ctx = canvas.getContext('2d');
+
+                function drawBox(x, y, w, h, text, color) {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, w, h);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    const lines = text.split('\n');
+                    lines.forEach((line, i) => {
+                        ctx.fillText(line, x + w/2, y + 20 + i * 15);
+                    });
+                }
+
+                function drawDiamond(x, y, w, h, text, color) {
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + h/2);
+                    ctx.lineTo(x + w/2, y);
+                    ctx.lineTo(x + w, y + h/2);
+                    ctx.lineTo(x + w/2, y + h);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 11px Arial';
+                    ctx.textAlign = 'center';
+                    const lines = text.split('\n');
+                    lines.forEach((line, i) => {
+                        ctx.fillText(line, x + w/2, y + h/2 + i * 12 - 5);
+                    });
+                }
+
+                function drawArrow(x1, y1, x2, y2, label, highlight) {
+                    ctx.strokeStyle = highlight ? '#e74c3c' : '#95a5a6';
+                    ctx.lineWidth = highlight ? 3 : 2;
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+
+                    // Arrowhead
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    ctx.fillStyle = highlight ? '#e74c3c' : '#95a5a6';
+                    ctx.beginPath();
+                    ctx.moveTo(x2, y2);
+                    ctx.lineTo(x2 - 8 * Math.cos(angle - Math.PI/6), y2 - 8 * Math.sin(angle - Math.PI/6));
+                    ctx.lineTo(x2 - 8 * Math.cos(angle + Math.PI/6), y2 - 8 * Math.sin(angle + Math.PI/6));
+                    ctx.closePath();
+                    ctx.fill();
+
+                    if (label) {
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = 'bold 10px Arial';
+                        ctx.fillText(label, (x1 + x2)/2 + 15, (y1 + y2)/2);
+                    }
+                }
+
+                window.updateRAFlow = function() {
+                    const myState = document.getElementById('myState').value;
+                    const myTreq = parseInt(document.getElementById('myTreq').value);
+                    const theirTmsg = parseInt(document.getElementById('theirTmsg').value);
+
+                    ctx.clearRect(0, 0, 600, 500);
+
+                    // Start
+                    drawBox(200, 10, 200, 40, 'Receive REQUEST\n(sender, T_msg)', '#ecf0f1');
+                    drawArrow(300, 50, 300, 90, '', false);
+
+                    // First decision
+                    drawDiamond(200, 90, 200, 80, 'Am I\nrequesting_or\n_holding?', myState === 'requesting' ? '#f39c12' : '#ecf0f1');
+
+                    // NO path
+                    drawArrow(200, 130, 80, 130, 'NO', myState === 'idle');
+                    drawArrow(80, 130, 80, 200, '', myState === 'idle');
+                    drawBox(10, 200, 140, 50, 'Send REPLY\nimmediately', myState === 'idle' ? '#27ae60' : '#ecf0f1');
+
+                    // YES path
+                    drawArrow(400, 130, 500, 130, 'YES', myState === 'requesting');
+                    drawArrow(500, 130, 500, 220, '', myState === 'requesting');
+
+                    // Second decision
+                    const myEarlier = myState === 'requesting' && myTreq < theirTmsg;
+                    drawDiamond(400, 220, 200, 80, `T_req (${myTreq})\n< T_msg (${theirTmsg})?`, myState === 'requesting' ? '#f39c12' : '#ecf0f1');
+
+                    // YES - defer
+                    drawArrow(500, 300, 500, 350, 'YES', myEarlier);
+                    drawBox(440, 350, 120, 50, 'DEFER\n(add to DEFERRED)', myEarlier ? '#f39c12' : '#ecf0f1');
+
+                    // NO path - reply
+                    drawArrow(400, 260, 300, 260, 'NO', myState === 'requesting' && myTreq >= theirTmsg);
+                    drawArrow(300, 260, 300, 350, '', myState === 'requesting' && myTreq >= theirTmsg);
+                    drawBox(240, 350, 120, 50, 'Send REPLY\nimmediately', myState === 'requesting' && myTreq >= theirTmsg ? '#27ae60' : '#ecf0f1');
+
+                    // Decision text
+                    const decisionDiv = document.getElementById('raDecision');
+                    let decision = '';
+                    if (myState === 'idle') {
+                        decision = '<strong>Decision: REPLY IMMEDIATELY</strong><br>Reason: Not requesting/holding, so no conflict.';
+                    } else if (myTreq < theirTmsg) {
+                        decision = `<strong>Decision: DEFER</strong><br>Reason: My request (T=${myTreq}) has higher priority than theirs (T=${theirTmsg}).`;
+                    } else {
+                        decision = `<strong>Decision: REPLY IMMEDIATELY</strong><br>Reason: Their request (T=${theirTmsg}) has higher priority than mine (T=${myTreq}).`;
+                    }
+                    decisionDiv.innerHTML = decision;
+                };
+
+                updateRAFlow();
+            })();
+            </script>
+
+            <h3>Detailed Example</h3>
+            <p><strong>Setup:</strong> 3 processes (A, B, C)</p>
+            <p><strong>Scenario:</strong></p>
+            <ul>
+                <li>Node C requests at logical time 0</li>
+                <li>Node A requests at logical time 1</li>
+            </ul>
+
+            <h4>Step 0: Initial state</h4>
+            <pre><code>Node A: T=0, requesting=false
+Node B: T=0, requesting=false
+Node C: T=0, requesting=false</code></pre>
+
+            <h4>Step 1: C wants critical section</h4>
+            <pre><code>Node C:
+  T = 1 (increment)
+  T_req = 1
+  Send REQUEST(C, 1) to A and B</code></pre>
+
+            <h4>Step 2: A wants critical section (concurrently)</h4>
+            <pre><code>Node A:
+  T = 1 (increment)
+  T_req = 1
+  Send REQUEST(A, 1) to B and C</code></pre>
+
+            <p><em>Note: The example in the markdown shows C requesting at time 0 and A at time 1, but the trace shows both at time 1. Following the corrected lecture example...</em></p>
+
+            <h4>Corrected Lecture Example</h4>
+            <p><strong>Initial Setup:</strong></p>
+            <ul>
+                <li>Node C requests at logical time 0: <code>T_req = 0</code></li>
+                <li>Node A requests at logical time 1: <code>T_req = 1</code></li>
+            </ul>
+
+            <h4>Trace:</h4>
+            <p><strong>C sends REQUEST(C, 0) to all</strong></p>
+            <p><strong>A sends REQUEST(A, 1) to all</strong></p>
+
+            <h4>When A receives REQUEST(C, 0):</h4>
+            <ul>
+                <li>A is <code>requesting_or_holding = true</code>, <code>T_req = 1</code></li>
+                <li>Incoming: <code>T_msg = 0</code> from C</li>
+                <li>Check priority: <code>T_req (1) < T_msg (0)</code>? NO, <code>1 > 0</code></li>
+                <li>So C has higher priority (earlier timestamp)</li>
+                <li>A does NOT defer, sends REPLY to C immediately</li>
+            </ul>
+
+            <h4>When C receives REQUEST(A, 1):</h4>
+            <ul>
+                <li>C is <code>requesting_or_holding = true</code>, <code>T_req = 0</code></li>
+                <li>Incoming: <code>T_msg = 1</code> from A</li>
+                <li>Check priority: <code>T_req (0) < T_msg (1)</code>? YES</li>
+                <li>C has higher priority, so DEFER reply to A</li>
+                <li><code>DEFERRED = {A}</code></li>
+            </ul>
+
+            <h4>When B receives requests:</h4>
+            <ul>
+                <li>B is not requesting, replies to both</li>
+                <li>Sends REPLY to C</li>
+                <li>Sends REPLY to A</li>
+            </ul>
+
+            <h4>C's REPLIED set:</h4>
+            <ul>
+                <li>Gets REPLY from A: <code>REPLIED = {A}</code></li>
+                <li>Gets REPLY from B: <code>REPLIED = {A, B}</code></li>
+                <li>All peers replied! Enter CS</li>
+            </ul>
+
+            <h4>A's REPLIED set:</h4>
+            <ul>
+                <li>Gets REPLY from B: <code>REPLIED = {B}</code></li>
+                <li>Still waiting for C...</li>
+            </ul>
+
+            <h4>C finishes CS:</h4>
+            <ul>
+                <li><code>requesting_or_holding = false</code></li>
+                <li><code>DEFERRED = {A}</code></li>
+                <li>Send REPLY to A</li>
+                <li>A now has <code>REPLIED = {B, C}</code>, enters CS!</li>
+            </ul>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Ricart-Agrawala Execution Trace</h3>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;">
+                    <div style="flex: 2; min-width: 400px;">
+                        <canvas id="raTraceCanvas" width="500" height="350" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; height: auto;"></canvas>
+                    </div>
+                    <div style="flex: 1; min-width: 250px;">
+                        <div id="raNodeStates" style="background: var(--code-bg); padding: 1rem; border-radius: 5px; font-family: monospace; font-size: 0.8em; max-height: 350px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button onclick="nextRAStep()" style="background: var(--secondary-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin-right: 0.5rem;">Next Step</button>
+                    <button onclick="resetRATrace()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                    <div id="raStepDesc" style="display: inline-block; margin-left: 1rem; font-weight: bold;"></div>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('raTraceCanvas');
+                const ctx = canvas.getContext('2d');
+                let step = 0;
+
+                const nodes = [
+                    { id: 'C', y: 70, T: 0, T_req: null, requesting: false, replied: [], deferred: [], inCS: false },
+                    { id: 'A', y: 180, T: 0, T_req: null, requesting: false, replied: [], deferred: [], inCS: false },
+                    { id: 'B', y: 290, T: 0, T_req: null, requesting: false, replied: [], deferred: [], inCS: false }
+                ];
+
+                const messages = [];
+
+                const steps = [
+                    { desc: 'C requests at T=0', action: () => { nodes[0].T = 1; nodes[0].T_req = 0; nodes[0].requesting = true; messages.push({from: 0, to: 1, type: 'REQ', t: 0, x: 0}); messages.push({from: 0, to: 2, type: 'REQ', t: 0, x: 0}); }},
+                    { desc: 'A requests at T=1', action: () => { nodes[1].T = 1; nodes[1].T_req = 1; nodes[1].requesting = true; messages.push({from: 1, to: 0, type: 'REQ', t: 1, x: 0}); messages.push({from: 1, to: 2, type: 'REQ', t: 1, x: 0}); }},
+                    { desc: 'A receives REQ from C (T=0)', action: () => { nodes[1].T = Math.max(nodes[1].T, 0) + 1; messages.push({from: 1, to: 0, type: 'REPLY', t: nodes[1].T, x: 0, note: 'immediate'}); }},
+                    { desc: 'C receives REQ from A (T=1)', action: () => { nodes[0].T = Math.max(nodes[0].T, 1) + 1; nodes[0].deferred.push('A'); }},
+                    { desc: 'B replies to both', action: () => { nodes[2].replied = ['C', 'A']; messages.push({from: 2, to: 0, type: 'REPLY', t: 0, x: 0}); messages.push({from: 2, to: 1, type: 'REPLY', t: 0, x: 0}); }},
+                    { desc: 'C gets all replies, enters CS!', action: () => { nodes[0].replied = ['A', 'B']; nodes[0].inCS = true; }},
+                    { desc: 'C exits CS, sends deferred REPLY to A', action: () => { nodes[0].inCS = false; nodes[0].requesting = false; nodes[0].deferred = []; messages.push({from: 0, to: 1, type: 'REPLY', t: 0, x: 0, note: 'deferred'}); }},
+                    { desc: 'A gets all replies, enters CS!', action: () => { nodes[1].replied = ['B', 'C']; nodes[1].inCS = true; }}
+                ];
+
+                function drawRATrace() {
+                    ctx.clearRect(0, 0, 500, 350);
+
+                    nodes.forEach((node, idx) => {
+                        // Node circle
+                        ctx.fillStyle = node.inCS ? '#27ae60' : node.requesting ? '#f39c12' : '#3498db';
+                        ctx.beginPath();
+                        ctx.arc(80, node.y, 25, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(node.id, 80, node.y + 5);
+
+                        // Timeline
+                        ctx.strokeStyle = '#bdc3c7';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(120, node.y);
+                        ctx.lineTo(480, node.y);
+                        ctx.stroke();
+
+                        // State info
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '11px Arial';
+                        ctx.textAlign = 'left';
+                        ctx.fillText(`T=${node.T}`, 20, node.y - 30);
+                        if (node.T_req !== null) {
+                            ctx.fillText(`Treq=${node.T_req}`, 20, node.y - 15);
+                        }
+                    });
+
+                    // Draw messages
+                    messages.forEach(msg => {
+                        const fromNode = nodes[msg.from];
+                        const toNode = nodes[msg.to];
+                        msg.x += 2;
+
+                        const x1 = 120 + Math.min(msg.x, 350);
+                        const y1 = fromNode.y;
+                        const x2 = 120 + Math.min(msg.x, 350);
+                        const y2 = toNode.y;
+
+                        ctx.strokeStyle = msg.type === 'REQ' ? '#3498db' : msg.note === 'deferred' ? '#f39c12' : '#27ae60';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([3, 3]);
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+
+                        if (msg.x < 350) {
+                            ctx.fillStyle = msg.type === 'REQ' ? '#3498db' : '#27ae60';
+                            ctx.beginPath();
+                            ctx.arc(x2, y2, 5, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    });
+
+                    updateRAStates();
+                }
+
+                function updateRAStates() {
+                    const stateDiv = document.getElementById('raNodeStates');
+                    let html = '<div style="font-weight: bold; margin-bottom: 0.5rem;">Node States:</div>';
+                    nodes.forEach(node => {
+                        html += `<div style="margin: 0.5rem 0; padding: 0.5rem; background: ${node.inCS ? 'rgba(39, 174, 96, 0.2)' : 'transparent'}; border-left: 2px solid #3498db;">`;
+                        html += `<strong>${node.id}:</strong> T=${node.T}`;
+                        if (node.T_req !== null) html += `, Treq=${node.T_req}`;
+                        html += `<br>Requesting: ${node.requesting}`;
+                        if (node.replied.length > 0) html += `<br>Replied: {${node.replied.join(',')}}`;
+                        if (node.deferred.length > 0) html += `<br>Deferred: {${node.deferred.join(',')}}`;
+                        if (node.inCS) html += '<br><span style="color: #27ae60; font-weight: bold;">IN CS!</span>';
+                        html += `</div>`;
+                    });
+                    stateDiv.innerHTML = html;
+                }
+
+                window.nextRAStep = function() {
+                    if (step < steps.length) {
+                        steps[step].action();
+                        document.getElementById('raStepDesc').textContent = `Step ${step + 1}: ${steps[step].desc}`;
+                        step++;
+                        drawRATrace();
+                    }
+                };
+
+                window.resetRATrace = function() {
+                    step = 0;
+                    nodes.forEach(n => { n.T = 0; n.T_req = null; n.requesting = false; n.replied = []; n.deferred = []; n.inCS = false; });
+                    messages.length = 0;
+                    document.getElementById('raStepDesc').textContent = '';
+                    drawRATrace();
+                };
+
+                resetRATrace();
+            })();
+            </script>
+
+            <h3>Why Ricart-Agrawala is Correct</h3>
+
+            <h4>Safety (Mutual Exclusion):</h4>
+            <ul>
+                <li>Suppose two processes P1 and P2 both try to enter CS</li>
+                <li>Their requests have timestamps T1 and T2</li>
+                <li>WLOG, assume T1 < T2 (T1 is earlier)</li>
+                <li>When P2 receives REQUEST from P1, P2 sees T1 < T2, so P2 defers reply</li>
+                <li>P1 cannot enter CS until P2 replies</li>
+                <li>P2 won't reply until P1 finishes CS</li>
+                <li>Therefore, P1 and P2 cannot be in CS simultaneously</li>
+            </ul>
+
+            <h4>Liveness (No Deadlock):</h4>
+            <ul>
+                <li>Every process eventually gets all replies because:
+                    <ol>
+                        <li>Processes either reply immediately, or</li>
+                        <li>Defer and reply after finishing CS</li>
+                    </ol>
+                </li>
+                <li>Since every process eventually finishes CS, all deferred replies eventually get sent</li>
+            </ul>
+
+            <h4>Fairness (In-Order):</h4>
+            <ul>
+                <li>Lamport clocks provide total ordering</li>
+                <li>Earlier requests always get priority</li>
+                <li>No process can "skip ahead" of earlier requests</li>
+            </ul>
+
+            <h3>Analysis</h3>
+
+            <h4>Advantages:</h4>
+            <ul>
+                <li><strong>Fair</strong> - requests served in timestamp order</li>
+                <li><strong>Fully distributed</strong> - no central server</li>
+                <li><strong>Short synchronization delay</strong> - only one message round-trip</li>
+            </ul>
+
+            <h4>Disadvantages:</h4>
+            <ul>
+                <li><strong>High message traffic</strong> - requires 2(N-1) messages per CS entry:
+                    <ul>
+                        <li>(N-1) REQUEST messages to all peers</li>
+                        <li>(N-1) REPLY messages from all peers</li>
+                    </ul>
+                </li>
+                <li><strong>Unreliable</strong> - if ANY process fails, system halts
+                    <ul>
+                        <li>A failed process won't send REPLY, so requestors wait forever</li>
+                        <li>Need timeout and failure detection mechanisms</li>
+                    </ul>
+                </li>
+                <li><strong>Requires all-to-all communication</strong> - every process must know every other process</li>
+            </ul>
+
+            <h4>Message Count Example:</h4>
+            <ul>
+                <li>4 processes (P1, P2, P3, P4)</li>
+                <li>P1 wants CS: sends 3 REQUESTS, receives 3 REPLIES = 6 messages</li>
+                <li>P2 wants CS: sends 3 REQUESTS, receives 3 REPLIES = 6 messages</li>
+                <li>Total: 12 messages for 2 CS entries</li>
+            </ul>
+
+            <div class="callout callout-warning">
+                <p><strong>Memory Aid: "Ricart-Agrawala = Fair & Fast but Fragile"</strong></p>
+                <ul>
+                    <li>Fair = Lamport clocks ensure in-order</li>
+                    <li>Fast = low synchronization delay (one round-trip)</li>
+                    <li>Fragile = any node failure kills the system</li>
+                    <li>2(N-1) = two times (N-1) messages</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="comparison-and-tradeoffs">
+            <h2>Comparison and Trade-offs</h2>
+
+            <h3>Summary Table</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th>Messages per CS</th>
+                        <th>Sync Delay</th>
+                        <th>Fairness</th>
+                        <th>Single Point of Failure</th>
+                        <th>Reliability</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Central Server</strong></td>
+                        <td>3</td>
+                        <td>2 message delays</td>
+                        <td>No (async network)</td>
+                        <td>Yes (server)</td>
+                        <td>Low</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Token Ring</strong></td>
+                        <td>1 to ∞ (continuous)</td>
+                        <td>0 to (N-1)</td>
+                        <td>Yes (with timestamps)</td>
+                        <td>No, but...</td>
+                        <td>Very Low (any node fails, ring breaks)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Ricart-Agrawala</strong></td>
+                        <td>2(N-1)</td>
+                        <td>1 round-trip</td>
+                        <td>Yes</td>
+                        <td>No</td>
+                        <td>Low (any node fails, system halts)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Algorithm Comparison</h3>
+                <div style="margin-bottom: 1rem;">
+                    <label style="font-weight: bold; margin-right: 0.5rem;">Number of Processes (N):</label>
+                    <input type="range" id="numProcesses" min="3" max="10" value="4" onchange="updateComparison()" style="vertical-align: middle;">
+                    <span id="numProcessesLabel" style="margin-left: 0.5rem; font-weight: bold;">4</span>
+                </div>
+                <canvas id="comparisonCanvas" width="700" height="400" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 700px; height: auto;"></canvas>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('comparisonCanvas');
+                const ctx = canvas.getContext('2d');
+
+                function drawComparison(N) {
+                    ctx.clearRect(0, 0, 700, 400);
+                    document.getElementById('numProcessesLabel').textContent = N;
+
+                    const algorithms = [
+                        { name: 'Central\nServer', color: '#3498db', messages: 3, delay: 2, fairness: false, spof: true, reliability: 2 },
+                        { name: 'Token\nRing', color: '#9b59b6', messages: N - 1, delay: N - 1, fairness: true, spof: false, reliability: 1 },
+                        { name: 'Ricart-\nAgrawala', color: '#e74c3c', messages: 2 * (N - 1), delay: 1, fairness: true, spof: false, reliability: 2 }
+                    ];
+
+                    const x0 = 80;
+                    const colWidth = 180;
+
+                    // Headers
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'center';
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth;
+                        ctx.fillStyle = alg.color;
+                        ctx.fillRect(x, 20, 140, 50);
+                        ctx.fillStyle = 'white';
+                        const lines = alg.name.split('\n');
+                        lines.forEach((line, j) => {
+                            ctx.fillText(line, x + 70, 40 + j * 16);
+                        });
+                    });
+
+                    // Messages
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Messages per CS:', 10, 110);
+
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth + 70;
+                        const barHeight = alg.messages * 8;
+                        ctx.fillStyle = alg.color;
+                        ctx.fillRect(x - 20, 130 - barHeight, 40, barHeight);
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.textAlign = 'center';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.fillText(alg.messages.toString(), x, 145);
+                    });
+
+                    // Sync Delay
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Sync Delay:', 10, 190);
+
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth + 70;
+                        const barHeight = alg.delay * 15;
+                        ctx.fillStyle = alg.color;
+                        ctx.fillRect(x - 20, 210 - barHeight, 40, barHeight);
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.textAlign = 'center';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.fillText(alg.delay.toString(), x, 225);
+                    });
+
+                    // Fairness
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Fairness:', 10, 265);
+
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth + 70;
+                        if (alg.fairness) {
+                            ctx.strokeStyle = '#27ae60';
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(x - 10, 275);
+                            ctx.lineTo(x - 3, 282);
+                            ctx.lineTo(x + 10, 265);
+                            ctx.stroke();
+                        } else {
+                            ctx.strokeStyle = '#e74c3c';
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(x - 8, 268);
+                            ctx.lineTo(x + 8, 282);
+                            ctx.moveTo(x + 8, 268);
+                            ctx.lineTo(x - 8, 282);
+                            ctx.stroke();
+                        }
+                    });
+
+                    // Single Point of Failure
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Single Point of Failure:', 10, 325);
+
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth + 70;
+                        if (alg.spof) {
+                            ctx.fillStyle = '#f39c12';
+                            ctx.beginPath();
+                            ctx.moveTo(x, 332);
+                            ctx.lineTo(x - 8, 350);
+                            ctx.lineTo(x + 8, 350);
+                            ctx.closePath();
+                            ctx.fill();
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = 'bold 16px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('!', x, 347);
+                        } else {
+                            ctx.strokeStyle = '#27ae60';
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(x - 10, 342);
+                            ctx.lineTo(x - 3, 349);
+                            ctx.lineTo(x + 10, 332);
+                            ctx.stroke();
+                        }
+                    });
+
+                    // Reliability Stars
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Reliability:', 10, 385);
+
+                    algorithms.forEach((alg, i) => {
+                        const x = x0 + i * colWidth + 70;
+                        for (let s = 0; s < 5; s++) {
+                            ctx.fillStyle = s < alg.reliability ? '#f39c12' : '#bdc3c7';
+                            ctx.font = '16px Arial';
+                            ctx.fillText('★', x - 35 + s * 14, 390);
+                        }
+                    });
+                }
+
+                window.updateComparison = function() {
+                    const N = parseInt(document.getElementById('numProcesses').value);
+                    drawComparison(N);
+                };
+
+                drawComparison(4);
+            })();
+            </script>
+
+            <h3>When to Use Which?</h3>
+
+            <h4>Central Server:</h4>
+            <ul>
+                <li>Small systems with low contention</li>
+                <li>When simplicity is paramount</li>
+                <li>Acceptable to have single point of failure</li>
+                <li><strong>Example:</strong> Small file server with few clients</li>
+            </ul>
+
+            <h4>Token Ring:</h4>
+            <ul>
+                <li>When fairness is critical</li>
+                <li>Moderate contention</li>
+                <li>Reliable network and nodes</li>
+                <li><strong>Example:</strong> Industrial control systems with fixed topology</li>
+            </ul>
+
+            <h4>Ricart-Agrawala:</h4>
+            <ul>
+                <li>When fairness and low latency are both important</li>
+                <li>Small to medium number of processes</li>
+                <li>Need distributed architecture</li>
+                <li><strong>Example:</strong> Distributed database transaction coordination</li>
+            </ul>
+
+            <h3>The Fault Tolerance Problem</h3>
+            <div class="callout callout-warning">
+                <p><strong>Key Insight:</strong> All these basic algorithms struggle with failures!</p>
+            </div>
+
+            <h4>Solutions to improve fault tolerance:</h4>
+            <ol>
+                <li><strong>Add timeouts and retries</strong> - detect non-responsive processes</li>
+                <li><strong>Use quorum-based approaches</strong> - only require K out of N replies</li>
+                <li><strong>Employ failure detectors</strong> - explicitly detect and handle crashed nodes</li>
+                <li><strong>Use leader election</strong> - recover from central server failures</li>
+            </ol>
+
+            <h4>Modern Approach:</h4>
+            <p>Most production systems use more sophisticated algorithms like:</p>
+            <ul>
+                <li><strong>Paxos</strong> - consensus with fault tolerance</li>
+                <li><strong>Raft</strong> - understandable consensus algorithm</li>
+                <li><strong>ZooKeeper</strong> - coordination service with built-in locking</li>
+            </ul>
+            <p>These build on the principles we've learned but add fault tolerance.</p>
+        </section>
+
+        <section id="exam-tips">
+            <h2>Exam Tips and Memory Aids</h2>
+
+            <h3>Core Concepts to Memorize</h3>
+
+            <h4>1. Three Goals: SLF</h4>
+            <ul>
+                <li><strong>S</strong>afety (mutual exclusion)</li>
+                <li><strong>L</strong>iveness (progress)</li>
+                <li><strong>F</strong>airness (bounded wait, in-order)</li>
+            </ul>
+
+            <h4>2. Lamport Clock Rules: "Inc-Attach-Max"</h4>
+            <ul>
+                <li><strong>Inc</strong>rement on local events: <code>T = T + 1</code></li>
+                <li><strong>Attach</strong> timestamp when sending: <code>Tm = T</code></li>
+                <li><strong>Max</strong> plus one when receiving: <code>T = max(T, Tm) + 1</code></li>
+            </ul>
+
+            <h4>3. Ricart-Agrawala Core Logic: "Earlier = Defer"</h4>
+            <ul>
+                <li>If you're requesting AND your timestamp is earlier → DEFER reply</li>
+                <li>If not requesting OR their timestamp is earlier → REPLY immediately</li>
+            </ul>
+
+            <h4>4. Message Counts:</h4>
+            <ul>
+                <li>Central: <strong>3</strong> (Request, OK, Release)</li>
+                <li>Ricart-Agrawala: <strong>2(N-1)</strong> (N-1 requests, N-1 replies)</li>
+            </ul>
+
+            <h3>Common Exam Question Types</h3>
+
+            <h4>Type 1: Trace Ricart-Agrawala Execution</h4>
+            <ul>
+                <li>Given timestamps and requests, determine order of CS entry</li>
+                <li>Remember: ALWAYS compare timestamps first, use IDs for tie-breaking</li>
+                <li>Track REPLIED and DEFERRED sets carefully</li>
+            </ul>
+
+            <h4>Type 2: Calculate Message Counts</h4>
+            <ul>
+                <li>Central server: 3 messages per CS entry</li>
+                <li>Ricart-Agrawala: 2(N-1) messages per CS entry</li>
+                <li>Multiple processes: multiply by number of CS entries</li>
+            </ul>
+
+            <p><strong>Example:</strong> 4 processes (P1, P2, P3, P4) all want CS using Ricart-Agrawala</p>
+            <ul>
+                <li>Each sends to 3 others: 4 × 3 = 12 REQUEST messages</li>
+                <li>Each receives from 3 others: 4 × 3 = 12 REPLY messages</li>
+                <li>Total: 24 messages (but they may overlap in time)</li>
+            </ul>
+
+            <h4>Type 3: Compare Algorithms</h4>
+            <ul>
+                <li>Know trade-offs: simplicity vs. reliability vs. message count vs. fairness</li>
+                <li>Central = simple but bottleneck</li>
+                <li>Token Ring = fair but fragile</li>
+                <li>Ricart-Agrawala = fair and fast but high messages and fragile</li>
+            </ul>
+
+            <h4>Type 4: Identify Problems</h4>
+            <ul>
+                <li>What happens if central server crashes? → System halts</li>
+                <li>What happens if token is lost? → System deadlocks</li>
+                <li>What happens if a node fails in Ricart-Agrawala? → Requestors wait forever</li>
+            </ul>
+
+            <h3>The "Distributed Mutual Exclusion Cheat Sheet"</h3>
+            <p><strong>When you see a question about distributed mutual exclusion:</strong></p>
+
+            <ol>
+                <li><strong>Identify the algorithm</strong> (Central, Token Ring, or Ricart-Agrawala)</li>
+                <li><strong>Check for Lamport clocks</strong> → indicates Ricart-Agrawala</li>
+                <li><strong>For Ricart-Agrawala traces:</strong>
+                    <ul>
+                        <li>Draw a table with columns: Node | T | T_req | requesting | REPLIED | DEFERRED</li>
+                        <li>Process events in chronological order (use timestamps!)</li>
+                        <li>When node receives REQUEST: check if requesting AND has earlier timestamp → defer</li>
+                        <li>Node enters CS when REPLIED == all other nodes</li>
+                    </ul>
+                </li>
+                <li><strong>For comparisons:</strong>
+                    <ul>
+                        <li>Central: 3 messages, simple, bottleneck, no fairness guarantee</li>
+                        <li>Token Ring: N-1 delay, fair (with timestamps), ring breaks on failure</li>
+                        <li>Ricart-Agrawala: 2(N-1) messages, fair, fast, any failure is fatal</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Mnemonics</h3>
+            <ul>
+                <li><strong>CSF</strong> = Central Server is <strong>C</strong>entralized, <strong>S</strong>imple, <strong>F</strong>ragile</li>
+                <li><strong>TRF</strong> = Token Ring is <strong>T</strong>imestamped (for fairness), <strong>R</strong>ing-based, <strong>F</strong>ragile</li>
+                <li><strong>RAFF</strong> = <strong>R</strong>icart-<strong>A</strong>grawala is <strong>F</strong>air, <strong>F</strong>ast (but many messages)</li>
+            </ul>
+
+            <h3>Practice Problems</h3>
+
+            <div class="callout callout-info">
+                <h4>Problem 1</h4>
+                <p>Three nodes (X, Y, Z) use Ricart-Agrawala. X requests at T=5, Y requests at T=3. Who enters CS first?</p>
+                <details>
+                    <summary><strong>Answer</strong></summary>
+                    <p>Y enters first (T=3 < T=5). X will defer reply to Y. Y will not defer reply to X (Y has priority). Y gets all replies first.</p>
+                </details>
+            </div>
+
+            <div class="callout callout-info">
+                <h4>Problem 2</h4>
+                <p>With 10 processes using Ricart-Agrawala, how many messages for one CS entry?</p>
+                <details>
+                    <summary><strong>Answer</strong></summary>
+                    <p>2(N-1) = 2(10-1) = 2(9) = 18 messages (9 requests + 9 replies)</p>
+                </details>
+            </div>
+
+            <div class="callout callout-info">
+                <h4>Problem 3</h4>
+                <p>Why can't central server guarantee fairness in asynchronous networks?</p>
+                <details>
+                    <summary><strong>Answer</strong></summary>
+                    <p>Messages can arrive out of order. Even if P1 sends request before P2, P2's request might arrive at server first due to network delays. Server has no way to know the "true" ordering.</p>
+                </details>
+            </div>
+
+            <div class="callout callout-info">
+                <h4>Problem 4</h4>
+                <p>In Ricart-Agrawala, node A has T_req=10, node B requests with T_msg=10. Who has priority?</p>
+                <details>
+                    <summary><strong>Answer</strong></summary>
+                    <p>Use process ID to break tie. If A < B (alphabetically or numerically), A has priority. The condition is: <code>T_req < T_msg || (T_req == T_msg && me < sender)</code>.</p>
+                </details>
+            </div>
+        </section>
+
+        <section id="real-world-applications">
+            <h2>Real-World Applications</h2>
+            <p><strong>Where is distributed mutual exclusion used?</strong></p>
+
+            <h3>1. Distributed File Systems</h3>
+            <ul>
+                <li><strong>Example:</strong> Frangipani (mentioned in lecture)</li>
+                <li>Multiple servers need to coordinate access to files</li>
+                <li>Prevent concurrent writes to same file</li>
+            </ul>
+
+            <h3>2. Distributed Databases</h3>
+            <ul>
+                <li>Transaction coordination</li>
+                <li>Ensuring atomicity across multiple database nodes</li>
+                <li>Lock management for distributed transactions</li>
+            </ul>
+
+            <h3>3. Cluster Management</h3>
+            <ul>
+                <li>Leader election (which node is primary?)</li>
+                <li>Resource allocation (which node gets the job?)</li>
+            </ul>
+
+            <h3>4. Modern Coordination Services</h3>
+            <ul>
+                <li><strong>ZooKeeper</strong> - uses a version-based locking mechanism</li>
+                <li><strong>etcd</strong> - distributed key-value store with locking</li>
+                <li><strong>Chubby</strong> (Google) - distributed lock service</li>
+            </ul>
+
+            <h3>The Evolution</h3>
+            <p>The simple algorithms we studied (Central, Token Ring, Ricart-Agrawala) are foundational but rarely used directly in production due to fault tolerance issues. Instead:</p>
+            <ul>
+                <li>They inspired modern consensus algorithms (Paxos, Raft)</li>
+                <li>They teach us the fundamental trade-offs</li>
+                <li>Production systems add layers of fault tolerance, failure detection, and recovery</li>
+            </ul>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Evolution to Modern Systems</h3>
+                <canvas id="evolutionCanvas" width="700" height="450" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 700px; height: auto; margin: 1rem 0;"></canvas>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('evolutionCanvas');
+                const ctx = canvas.getContext('2d');
+
+                function drawBox(x, y, w, h, title, limitations, color) {
+                    const gradient = ctx.createLinearGradient(x, y, x + w, y + h);
+                    gradient.addColorStop(0, color);
+                    gradient.addColorStop(1, color + 'CC');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, w, h);
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(title, x + w/2, y + 18);
+
+                    ctx.font = '10px Arial';
+                    limitations.forEach((lim, i) => {
+                        ctx.fillText(lim, x + w/2, y + 35 + i * 12);
+                    });
+                }
+
+                function drawArrow(x1, y1, x2, y2, label) {
+                    ctx.strokeStyle = '#95a5a6';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.beginPath();
+                    ctx.moveTo(x2, y2);
+                    ctx.lineTo(x2 - 10 * Math.cos(angle - Math.PI/6), y2 - 10 * Math.sin(angle - Math.PI/6));
+                    ctx.lineTo(x2 - 10 * Math.cos(angle + Math.PI/6), y2 - 10 * Math.sin(angle + Math.PI/6));
+                    ctx.closePath();
+                    ctx.fill();
+
+                    if (label) {
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '9px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(label, (x1 + x2)/2, (y1 + y2)/2 - 5);
+                    }
+                }
+
+                ctx.clearRect(0, 0, 700, 450);
+
+                // Classic algorithms
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('Classic Algorithms (1970s-1980s)', 10, 20);
+
+                drawBox(10, 40, 140, 90, 'Central Server', ['Single Point', 'of Failure', 'Bottleneck'], '#3498db');
+                drawBox(10, 150, 140, 90, 'Token Ring', ['Ring Breaks', 'on Failure', 'High Delay'], '#9b59b6');
+                drawBox(10, 260, 140, 90, 'Ricart-Agrawala', ['High Messages', 'No Fault', 'Tolerance'], '#e74c3c');
+
+                // Modern systems
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('Modern Systems (1990s-2010s)', 420, 20);
+
+                drawBox(420, 40, 140, 90, 'Paxos', ['Fault Tolerant', 'Quorum-Based', 'Complex'], '#27ae60');
+                drawBox(420, 150, 140, 90, 'Raft', ['Understandable', 'Leader Election', 'Replicated'], '#16a085');
+                drawBox(420, 260, 140, 90, 'ZooKeeper', ['Coordination', 'High Avail.', 'Production'], '#2ecc71');
+
+                // Evolution arrows
+                drawArrow(150, 85, 420, 85, '+Fault Tolerance');
+                drawArrow(150, 195, 420, 195, '+Quorum');
+                drawArrow(150, 305, 420, 305, '+Replication');
+
+                // Applications
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Real-World Applications', 350, 390);
+
+                const apps = [
+                    { name: 'DB', x: 250, y: 420 },
+                    { name: 'File Sys', x: 330, y: 420 },
+                    { name: 'Cluster', x: 410, y: 420 }
+                ];
+
+                apps.forEach(app => {
+                    ctx.fillStyle = '#f39c12';
+                    ctx.fillRect(app.x, app.y, 60, 25);
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(app.x, app.y, 60, 25);
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.fillText(app.name, app.x + 30, app.y + 16);
+                });
+
+                // Connection lines from modern to apps
+                [480, 480, 480].forEach((x, i) => {
+                    ctx.strokeStyle = '#bdc3c7';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([2, 2]);
+                    ctx.beginPath();
+                    ctx.moveTo(x, 350);
+                    ctx.lineTo(apps[i].x + 30, apps[i].y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                });
+
+                // Timeline
+                ctx.strokeStyle = '#bdc3c7';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(200, 380);
+                ctx.lineTo(600, 380);
+                ctx.stroke();
+
+                ctx.fillStyle = '#2c3e50';
+                ctx.font = '11px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Time →', 400, 370);
+                ctx.fillText('Complexity →', 400, 410);
+            })();
+            </script>
+        </section>
+
+        <section id="final-thoughts">
+            <h2>Final Thoughts</h2>
+
+            <div class="callout callout-success">
+                <h3>What you absolutely must know for the exam:</h3>
+                <ol>
+                    <li><strong>The three primary goals: Safety, Liveness, Fairness</strong></li>
+                    <li><strong>Lamport clock rules and how to apply them</strong></li>
+                    <li><strong>Ricart-Agrawala algorithm:</strong>
+                        <ul>
+                            <li>When to defer replies (earlier timestamp = higher priority)</li>
+                            <li>How to trace execution with REPLIED and DEFERRED sets</li>
+                            <li>Message count: 2(N-1)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Trade-offs between algorithms:</strong>
+                        <ul>
+                            <li>Central: simple, low messages, but bottleneck</li>
+                            <li>Token Ring: fair but fragile</li>
+                            <li>Ricart-Agrawala: fair and fast but high messages</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <h3>The Big Picture</h3>
+            <p>Distributed mutual exclusion is fundamentally about coordination without shared state. Every solution makes trade-offs between:</p>
+            <ul>
+                <li><strong>Simplicity</strong> (easy to understand and implement)</li>
+                <li><strong>Performance</strong> (fewer messages, lower delay)</li>
+                <li><strong>Fairness</strong> (in-order, no starvation)</li>
+                <li><strong>Fault tolerance</strong> (handling failures)</li>
+            </ul>
+
+            <p>No algorithm is perfect. Understanding these trade-offs is what matters.</p>
+
+            <div class="callout callout-info">
+                <p><strong>Good luck on your exam!</strong> Remember: draw diagrams, track state carefully, and when in doubt, work through a concrete example step-by-step.</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Trade-offs Quadrant</h3>
+                <canvas id="tradeoffsCanvas" width="600" height="500" style="border: 1px solid var(--border-color); border-radius: 5px; width: 100%; max-width: 600px; height: auto; margin: 1rem 0;"></canvas>
+                <div id="tradeoffInfo" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; min-height: 50px; font-size: 0.9em;"></div>
+            </div>
+
+            <script>
+            (function() {
+                const canvas = document.getElementById('tradeoffsCanvas');
+                const ctx = canvas.getContext('2d');
+                let hoveredAlgo = null;
+
+                const algorithms = [
+                    { name: 'Central Server', x: 100, y: 250, size: 50, color: '#3498db', messages: 3, faultTol: 1, simplicity: 5 },
+                    { name: 'Token Ring', x: 220, y: 350, size: 40, color: '#9b59b6', messages: 8, faultTol: 0.5, simplicity: 3 },
+                    { name: 'Ricart-Agrawala', x: 380, y: 280, size: 35, color: '#e74c3c', messages: 14, faultTol: 1, simplicity: 2 },
+                    { name: 'Paxos/Raft', x: 150, y: 120, size: 30, color: '#27ae60', messages: 12, faultTol: 4, simplicity: 1, modern: true }
+                ];
+
+                function drawQuadrant() {
+                    ctx.clearRect(0, 0, 600, 500);
+
+                    // Axes
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(50, 450);
+                    ctx.lineTo(550, 450);
+                    ctx.moveTo(50, 450);
+                    ctx.lineTo(50, 50);
+                    ctx.stroke();
+
+                    // Ideal region
+                    ctx.fillStyle = 'rgba(39, 174, 96, 0.1)';
+                    ctx.fillRect(50, 50, 150, 150);
+                    ctx.strokeStyle = '#27ae60';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeRect(50, 50, 150, 150);
+                    ctx.setLineDash([]);
+
+                    ctx.fillStyle = '#27ae60';
+                    ctx.font = 'bold 11px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('IDEAL', 125, 125);
+                    ctx.font = '9px Arial';
+                    ctx.fillText('(Low msgs, High FT)', 125, 138);
+
+                    // Axis labels
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Messages per CS Entry →', 300, 485);
+                    ctx.save();
+                    ctx.translate(20, 250);
+                    ctx.rotate(-Math.PI/2);
+                    ctx.fillText('← Fault Tolerance', 0, 0);
+                    ctx.restore();
+
+                    // Grid lines
+                    ctx.strokeStyle = '#ecf0f1';
+                    ctx.lineWidth = 1;
+                    for (let i = 100; i <= 500; i += 100) {
+                        ctx.beginPath();
+                        ctx.moveTo(i, 50);
+                        ctx.lineTo(i, 450);
+                        ctx.stroke();
+                    }
+                    for (let i = 100; i <= 400; i += 100) {
+                        ctx.beginPath();
+                        ctx.moveTo(50, i);
+                        ctx.lineTo(550, i);
+                        ctx.stroke();
+                    }
+
+                    // Draw algorithms
+                    algorithms.forEach(alg => {
+                        const isHovered = hoveredAlgo === alg.name;
+
+                        ctx.fillStyle = alg.color + (isHovered ? 'FF' : 'CC');
+                        ctx.beginPath();
+                        ctx.arc(alg.x, alg.y, alg.size / 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = isHovered ? '#2c3e50' : alg.color;
+                        ctx.lineWidth = isHovered ? 3 : 2;
+                        ctx.stroke();
+
+                        // Label
+                        ctx.fillStyle = isHovered ? '#2c3e50' : '#ffffff';
+                        ctx.font = `${isHovered ? 'bold ' : ''}10px Arial`;
+                        ctx.textAlign = 'center';
+                        const lines = alg.name.split(' ');
+                        lines.forEach((line, i) => {
+                            ctx.fillText(line, alg.x, alg.y - 5 + i * 11);
+                        });
+
+                        // Modern badge
+                        if (alg.modern) {
+                            ctx.fillStyle = '#27ae60';
+                            ctx.font = 'bold 8px Arial';
+                            ctx.fillText('MODERN', alg.x, alg.y + alg.size / 2 + 12);
+                        }
+                    });
+
+                    // Legend for bubble size
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 11px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Bubble size = Simplicity', 400, 30);
+                    ctx.font = '9px Arial';
+                    ctx.fillText('(larger = simpler)', 400, 42);
+                }
+
+                canvas.addEventListener('mousemove', function(e) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scaleX = canvas.width / rect.width;
+                    const scaleY = canvas.height / rect.height;
+                    const x = (e.clientX - rect.left) * scaleX;
+                    const y = (e.clientY - rect.top) * scaleY;
+
+                    hoveredAlgo = null;
+                    algorithms.forEach(alg => {
+                        const dist = Math.sqrt((x - alg.x) ** 2 + (y - alg.y) ** 2);
+                        if (dist < alg.size / 2) {
+                            hoveredAlgo = alg.name;
+                            const infoDiv = document.getElementById('tradeoffInfo');
+                            infoDiv.innerHTML = `<strong>${alg.name}</strong><br>
+                                Messages: ${alg.messages} per CS entry<br>
+                                Fault Tolerance: ${alg.faultTol}/5<br>
+                                Simplicity: ${alg.simplicity}/5${alg.modern ? '<br><span style="color: #27ae60; font-weight: bold;">Modern production-ready system</span>' : ''}`;
+                        }
+                    });
+
+                    if (!hoveredAlgo) {
+                        document.getElementById('tradeoffInfo').innerHTML = 'Hover over bubbles for details';
+                    }
+
+                    drawQuadrant();
+                });
+
+                drawQuadrant();
+                document.getElementById('tradeoffInfo').innerHTML = 'Hover over bubbles for details';
+            })();
+            </script>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

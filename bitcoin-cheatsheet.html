@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin One-Page Cheat Sheet</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+            line-height: 1.2;
+            padding: 8px;
+            background: white;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+        .section {
+            border: 1px solid #000;
+            padding: 4px;
+            break-inside: avoid;
+        }
+        h1 {
+            font-size: 16px;
+            text-align: center;
+            background: #000;
+            color: #fff;
+            padding: 3px;
+            margin-bottom: 6px;
+        }
+        h2 {
+            font-size: 10px;
+            background: #333;
+            color: #fff;
+            padding: 2px;
+            margin: 3px 0 2px 0;
+        }
+        h3 {
+            font-size: 9px;
+            font-weight: bold;
+            text-decoration: underline;
+            margin-top: 2px;
+        }
+        code {
+            background: #f0f0f0;
+            padding: 0 2px;
+            font-size: 8px;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 2px;
+            margin: 2px 0;
+            font-size: 7px;
+            overflow-x: auto;
+        }
+        ul, ol {
+            margin-left: 10px;
+            margin-bottom: 2px;
+        }
+        li {
+            margin-bottom: 1px;
+        }
+        .formula {
+            background: #fffacd;
+            padding: 2px;
+            border-left: 2px solid #f90;
+            margin: 2px 0;
+        }
+        .warn {
+            background: #ffe4e4;
+            padding: 2px;
+            border-left: 2px solid #f00;
+        }
+        .key {
+            background: #e4ffe4;
+            padding: 2px;
+            border-left: 2px solid #0a0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7px;
+            margin: 2px 0;
+        }
+        th, td {
+            border: 1px solid #999;
+            padding: 1px 2px;
+        }
+        th {
+            background: #ddd;
+            font-weight: bold;
+        }
+        .tight { line-height: 1.1; }
+        strong { font-weight: bold; }
+        @media print {
+            body { padding: 0; }
+            .container { gap: 4px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔗 BITCOIN & BLOCKCHAIN CHEAT SHEET - CS 416</h1>
+
+    <div class="container">
+        <!-- COLUMN 1 -->
+        <div>
+            <div class="section">
+                <h2>THE PROBLEM</h2>
+                <h3>Double-Spending</h3>
+                <p><strong>Issue:</strong> Digital money = data → can be copied!</p>
+                <pre>Alice: 1 BTC
+t=0.000: Send to Bob
+t=0.001: Send to Charlie (SAME BTC!)
+Who got paid? Need consensus!</pre>
+                <p class="key"><strong>Bitcoin Solution:</strong> Single ordered history (blockchain) + expensive block creation (PoW) + longest chain wins</p>
+
+                <h3>Why Traditional Solutions Fail</h3>
+                <ul class="tight">
+                    <li><strong>Central server:</strong> Requires trust (Bitcoin goal: trustless)</li>
+                    <li><strong>Lamport/Vector clocks:</strong> Assumes honest nodes</li>
+                    <li><strong>Paxos/Raft:</strong> Needs known participants (Bitcoin: permissionless)</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>BLOCKCHAIN STRUCTURE</h2>
+                <h3>Block Anatomy</h3>
+                <pre>┌──────────────────┐
+│ BLOCK HEADER     │
+│ • Prev Hash (256b)│← Links to parent
+│ • Merkle Root    │← TX summary
+│ • Timestamp      │
+│ • Difficulty     │
+│ • Nonce          │← PoW answer
+├──────────────────┤
+│ TRANSACTIONS     │
+│ ~4000 TXs/block  │
+└──────────────────┘</pre>
+
+                <h3>Cryptographic Linking</h3>
+                <pre>Block N → Block N+1 → Block N+2
+Hash: A    Prev: A     Prev: B
+           Hash: B     Hash: C</pre>
+                <p class="key"><strong>Key:</strong> Change Block N → Hash changes → Chain breaks! Must recalculate ALL subsequent blocks (infeasible)</p>
+
+                <h3>Merkle Trees</h3>
+                <p><strong>Why:</strong> Verify TX inclusion without downloading all ~4000 TXs</p>
+                <pre>       Root (in header)
+         /    \
+      H1-2    H3-4
+      / \      / \
+    H1  H2   H3  H4
+    |   |    |   |
+   TX1 TX2 TX3 TX4</pre>
+                <p>Proof: TX3 + H4 + H1-2 = Root ✓ (log n hashes only!)</p>
+            </div>
+
+            <div class="section">
+                <h2>PROOF OF WORK (PoW)</h2>
+                <h3>The Puzzle</h3>
+                <p>Find nonce such that: <code>SHA256(SHA256(header)) &lt; target</code></p>
+                <pre>Target: 0x0000FFFF... (4 zero bytes)
+Try nonce=1: 0x8A3F... ✗
+Try nonce=2: 0x7B2E... ✗
+...
+Try nonce=2,847,392,847: 0x0000AB12 ✓</pre>
+
+                <h3>Why PoW?</h3>
+                <ul class="tight">
+                    <li><strong>Prevents Sybil attacks:</strong> Can't fake hashpower</li>
+                    <li><strong>One CPU ≈ One vote</strong> (approximately)</li>
+                    <li><strong>Makes voting expensive:</strong> Must invest in hardware/electricity</li>
+                    <li><strong>Byzantine fault tolerance:</strong> Works if honest &gt;50% hashpower</li>
+                </ul>
+
+                <div class="formula">
+                    <strong>Expected hashes:</strong> 2^difficulty<br>
+                    <strong>Difficulty adjust (every 2016 blocks):</strong><br>
+                    New = Old × (20,160 min / Actual time)
+                </div>
+
+                <h3>SHA-256 Properties</h3>
+                <ol class="tight">
+                    <li>Deterministic (same input → same output)</li>
+                    <li>Fast to compute forward</li>
+                    <li>Preimage resistant (can't reverse)</li>
+                    <li>Avalanche effect (1 bit change → ~50% bits flip)</li>
+                    <li>Uniform distribution</li>
+                </ol>
+                <p class="key"><strong>Result:</strong> ONLY solution = brute force all nonces!</p>
+            </div>
+
+            <div class="section">
+                <h2>MINING PROCESS</h2>
+                <p><strong>Mnemonic: "CTHVPB"</strong></p>
+                <ol class="tight">
+                    <li><strong>C</strong>ollect TXs from mempool</li>
+                    <li><strong>T</strong>ransaction validation (sigs, amounts)</li>
+                    <li><strong>H</strong>eader construction</li>
+                    <li><strong>V</strong>ary nonce, compute hash repeatedly</li>
+                    <li><strong>P</strong>ublish when hash &lt; target</li>
+                    <li><strong>B</strong>roadcast to network</li>
+                </ol>
+
+                <h3>Coinbase Transaction</h3>
+                <pre>Input:  NONE (creates BTC!)
+Output: Block reward + fees
+Current: 3.125 BTC + TX fees</pre>
+
+                <h3>Halving Schedule</h3>
+                <table>
+                    <tr><th>Blocks</th><th>Reward</th></tr>
+                    <tr><td>0-210k</td><td>50 BTC</td></tr>
+                    <tr><td>210k-420k</td><td>25 BTC</td></tr>
+                    <tr><td>420k-630k</td><td>12.5 BTC</td></tr>
+                    <tr><td>630k-840k</td><td>6.25 BTC</td></tr>
+                    <tr><td>840k-1050k</td><td>3.125 BTC</td></tr>
+                </table>
+                <p><strong>Total cap:</strong> ~21 million BTC (~year 2140)</p>
+            </div>
+        </div>
+
+        <!-- COLUMN 2 -->
+        <div>
+            <div class="section">
+                <h2>TRANSACTIONS</h2>
+                <h3>UTXO Model (NOT Account Balance)</h3>
+                <pre>Alice has: 1 BTC from TX#123
+Alice creates:
+  Input: TX#123 output
+  Output 0: 0.3 BTC → Bob
+  Output 1: 0.69 BTC → Alice (change)
+  Fee: 0.01 BTC (implicit)</pre>
+
+                <h3>Validation Rules</h3>
+                <ol class="tight">
+                    <li>Inputs exist in blockchain</li>
+                    <li>Inputs unspent (not double-spent)</li>
+                    <li>Signatures valid (cryptographic proof)</li>
+                    <li>Sum(inputs) ≥ Sum(outputs) + fees</li>
+                    <li>No conflicts with mempool/chain</li>
+                </ol>
+
+                <h3>Propagation (Gossip)</h3>
+                <pre>t=0s:  1 node knows
+t=1s:  ~7 nodes know
+t=2s:  ~49 nodes know
+t=10s: Most network knows</pre>
+
+                <h3>Confirmations</h3>
+                <table>
+                    <tr><th>Confs</th><th>Meaning</th></tr>
+                    <tr><td>0</td><td>Mempool (unconfirmed)</td></tr>
+                    <tr><td>1</td><td>In block (risky)</td></tr>
+                    <tr><td>3</td><td>Some merchants accept</td></tr>
+                    <tr><td>6</td><td>Standard (considered final)</td></tr>
+                </table>
+                <p><strong>Why 6?</strong> Exponentially decreases reversal probability</p>
+            </div>
+
+            <div class="section">
+                <h2>BYZANTINE FAULT TOLERANCE</h2>
+                <h3>Classical BFT vs Bitcoin</h3>
+                <table>
+                    <tr><th>Property</th><th>PBFT</th><th>Bitcoin</th></tr>
+                    <tr><td>Participants</td><td>Known</td><td>Unknown</td></tr>
+                    <tr><td>Membership</td><td>Permissioned</td><td>Permissionless</td></tr>
+                    <tr><td>Fault tolerance</td><td>f &lt; n/3</td><td>f &lt; 50% hash</td></tr>
+                    <tr><td>Finality</td><td>Immediate</td><td>Probabilistic</td></tr>
+                    <tr><td>TPS</td><td>~1000s</td><td>~7</td></tr>
+                    <tr><td>Latency</td><td>ms</td><td>~10 min</td></tr>
+                </table>
+
+                <h3>Consensus: Longest Chain Rule</h3>
+                <pre>Fork occurs:
+  Block 999
+    ├─ Block A ← Block A' ← Block A''
+    └─ Block B ← Block B'
+
+Chain A: 3 blocks (most work) ✓
+Chain B: 2 blocks → ORPHANED</pre>
+                <p class="key"><strong>Key:</strong> Honest majority makes honest chain grow fastest</p>
+
+                <h3>51% Attack</h3>
+                <p><strong>Attacker CAN:</strong></p>
+                <ul class="tight">
+                    <li>Double-spend their own TXs</li>
+                    <li>Censor transactions</li>
+                    <li>Cause reorganizations</li>
+                </ul>
+                <p><strong>Attacker CANNOT:</strong></p>
+                <ul class="tight">
+                    <li>Steal others' BTC (need private keys)</li>
+                    <li>Create BTC beyond protocol</li>
+                    <li>Change protocol rules</li>
+                </ul>
+                <p class="warn"><strong>Cost:</strong> &gt;$10B hardware + electricity. Attack crashes price → attacker loses!</p>
+            </div>
+
+            <div class="section">
+                <h2>SECURITY & ATTACKS</h2>
+                <h3>Cryptographic Primitives</h3>
+                <ul class="tight">
+                    <li><strong>SHA-256:</strong> Hashing (PoW, block hashes, Merkle)</li>
+                    <li><strong>ECDSA:</strong> Signatures (TX signing, addresses)</li>
+                </ul>
+
+                <h3>Attack Vectors</h3>
+                <p><strong>Double-Spend:</strong> Wait for confirmations (6+)</p>
+                <p><strong>Selfish Mining:</strong> Withhold blocks, release strategically. Requires &gt;25% hashpower</p>
+                <p><strong>Eclipse:</strong> Surround victim with attacker nodes. Defense: diverse peers</p>
+                <p><strong>Timejacking:</strong> Lie about timestamps. Defense: check against local clock</p>
+                <p><strong>Dust:</strong> Spam tiny amounts to cluster addresses (privacy attack)</p>
+
+                <h3>Network Properties</h3>
+                <ul class="tight">
+                    <li>~10k-100k nodes</li>
+                    <li>Avg 8 outbound + 117 inbound connections</li>
+                    <li>Gossip protocol for propagation</li>
+                    <li>No single point of failure (DDoS resistant)</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>FORMULAS TO MEMORIZE</h2>
+
+                <div class="formula">
+                    <strong>Expected Hashes:</strong><br>
+                    E[hashes] = 2^difficulty<br>
+                    <small>Ex: 4 zero bytes = 32 bits → 2^32 ≈ 4.3B hashes</small>
+                </div>
+
+                <div class="formula">
+                    <strong>Double-Spend Success Probability:</strong><br>
+                    P(success) ≈ (q/(1-q))^k<br>
+                    <small>q = attacker hashpower fraction<br>
+                    k = confirmations<br>
+                    Ex: q=0.4, k=6 → P ≈ 8.8%</small>
+                </div>
+
+                <div class="formula">
+                    <strong>Difficulty Adjustment:</strong><br>
+                    New = Old × (Target / Actual)<br>
+                    <small>Target: 2016 blocks in 20,160 min<br>
+                    Adjust every 2 weeks</small>
+                </div>
+
+                <div class="formula">
+                    <strong>Max Bitcoin Supply:</strong><br>
+                    Total = 210k × (50+25+12.5+6.25+...)<br>
+                    = 210k × 100 ≈ 21M BTC
+                </div>
+
+                <div class="formula">
+                    <strong>Transaction Fee:</strong><br>
+                    Fee = Sum(inputs) - Sum(outputs)
+                </div>
+
+                <div class="formula">
+                    <strong>Miner Reward:</strong><br>
+                    Reward = Block subsidy + All TX fees
+                </div>
+
+                <div class="formula">
+                    <strong>Block Time:</strong><br>
+                    Target: 10 minutes/block<br>
+                    Why? Fast enough for users, slow enough to propagate
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMN 3 -->
+        <div>
+            <div class="section">
+                <h2>CAP THEOREM & TRADE-OFFS</h2>
+                <h3>Bitcoin's Position</h3>
+                <p><strong>AP System</strong> (Availability + Partition Tolerance)</p>
+                <ul class="tight">
+                    <li><strong>C (Consistency):</strong> Eventual (not strong!)</li>
+                    <li><strong>A (Availability):</strong> Always accepts TXs</li>
+                    <li><strong>P (Partition):</strong> Works during network splits</li>
+                </ul>
+                <pre>Network partition:
+US nodes:    Block A at height 100
+China nodes: Block B at height 100
+Eventually: All converge to longer chain</pre>
+
+                <h3>Blockchain Trilemma</h3>
+                <p>Can only have 2 of 3:</p>
+                <ul class="tight">
+                    <li><strong>Decentralization:</strong> Anyone can run node ✓</li>
+                    <li><strong>Security:</strong> Resistant to attacks ✓</li>
+                    <li><strong>Scalability:</strong> High TPS ✗</li>
+                </ul>
+                <p><strong>Bitcoin:</strong> ~7 TPS vs Visa ~24k TPS</p>
+            </div>
+
+            <div class="section">
+                <h2>COMPARISON TABLE</h2>
+                <table>
+                    <tr><th>Property</th><th>Trad DB</th><th>Raft</th><th>Bitcoin</th></tr>
+                    <tr><td><strong>Trust</strong></td><td>Central</td><td>Trusted maj.</td><td>Untrusted</td></tr>
+                    <tr><td><strong>Consistency</strong></td><td>Strong</td><td>Strong</td><td>Eventual</td></tr>
+                    <tr><td><strong>Throughput</strong></td><td>Very high</td><td>Medium</td><td>Very low</td></tr>
+                    <tr><td><strong>Latency</strong></td><td>ms</td><td>ms</td><td>~10 min</td></tr>
+                    <tr><td><strong>Faults</strong></td><td>Crash</td><td>Crash</td><td>Byzantine</td></tr>
+                    <tr><td><strong>Open</strong></td><td>No</td><td>No</td><td>Yes</td></tr>
+                </table>
+
+                <h3>Connections to Course Topics</h3>
+                <ul class="tight">
+                    <li><strong>Raft/Paxos:</strong> Leader-based, closed, crash tolerant vs Bitcoin: leaderless, open, Byzantine tolerant</li>
+                    <li><strong>Chord DHT:</strong> Both use hashing for decentralization</li>
+                    <li><strong>Vector/Lamport clocks:</strong> Partial order vs Blockchain: total order</li>
+                    <li><strong>PBFT:</strong> 3f+1 nodes, known participants vs Bitcoin: 2x hashpower, unknown</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>MNEMONICS</h2>
+                <div class="key">
+                    <strong>DEPEND</strong> (Bitcoin Properties):<br>
+                    <strong>D</strong>ecentralized<br>
+                    <strong>E</strong>ventually consistent<br>
+                    <strong>P</strong>eer-to-peer<br>
+                    <strong>E</strong>conomic incentives<br>
+                    <strong>N</strong>o trusted parties<br>
+                    <strong>D</strong>eterministic ordering
+                </div>
+
+                <div class="key">
+                    <strong>CHAIN</strong> (Blockchain Properties):<br>
+                    <strong>C</strong>ryptographically linked<br>
+                    <strong>H</strong>ashing for immutability<br>
+                    <strong>A</strong>ppend-only<br>
+                    <strong>I</strong>mmutable with depth<br>
+                    <strong>N</strong>o central authority
+                </div>
+
+                <div class="key">
+                    <strong>MINER</strong> (Mining Steps):<br>
+                    <strong>M</strong>empool (collect)<br>
+                    <strong>I</strong>nclude in block<br>
+                    <strong>N</strong>once variation<br>
+                    <strong>E</strong>valuate hash<br>
+                    <strong>R</strong>eward collection
+                </div>
+
+                <div class="key">
+                    <strong>UTXO</strong> (Transaction Model):<br>
+                    <strong>U</strong>nspent outputs only<br>
+                    <strong>T</strong>X inputs reference prev outputs<br>
+                    <strong>X</strong> (cross out) spent outputs<br>
+                    <strong>O</strong>utputs for recipients + change
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>COMMON PITFALLS</h2>
+                <div class="warn">
+                    <strong>✗ "Same nonce = instant validation"</strong><br>
+                    ✓ Nonce is per-block. Same nonce + different header = different hash
+                </div>
+
+                <div class="warn">
+                    <strong>✗ "Time per TX = 10 min / 4000 = 0.15s"</strong><br>
+                    ✓ All 4000 TXs confirmed when block mined (~10 min)
+                </div>
+
+                <div class="warn">
+                    <strong>✗ "Blockchain is strongly consistent"</strong><br>
+                    ✓ Eventually consistent (nodes may temporarily disagree)
+                </div>
+
+                <div class="warn">
+                    <strong>✗ "Can choose TXs to make PoW easier"</strong><br>
+                    ✓ Difficulty purely about hash &lt; target, regardless of TXs
+                </div>
+
+                <div class="warn">
+                    <strong>✗ "51% attacker can steal anyone's BTC"</strong><br>
+                    ✓ Can only double-spend THEIR OWN (need private keys for others)
+                </div>
+
+                <h3>Don't Confuse</h3>
+                <ul class="tight">
+                    <li><strong>Block hash</strong> (output) vs <strong>Prev hash</strong> (input)</li>
+                    <li><strong>Nonce</strong> (PoW) vs <strong>TX ID</strong> (TX hash)</li>
+                    <li><strong>Validation</strong> (check TX) vs <strong>Confirmation</strong> (in block)</li>
+                    <li><strong>Fork</strong> (competing chains) vs <strong>Orphan</strong> (abandoned block)</li>
+                    <li><strong>Mining reward</strong> (new BTC) vs <strong>TX fee</strong> (implicit)</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>EXAM QUESTION PATTERNS</h2>
+                <h3>Q: How Bitcoin prevents double-spending?</h3>
+                <ol class="tight">
+                    <li>Define double-spending</li>
+                    <li>Blockchain = single ordered history</li>
+                    <li>Miners validate (check UTXO unspent)</li>
+                    <li>Longest chain rule ensures consensus</li>
+                    <li>Confirmations reduce reversal probability</li>
+                </ol>
+
+                <h3>Q: Why Proof of Work?</h3>
+                <ol class="tight">
+                    <li>Permissionless (anyone can join)</li>
+                    <li>Prevents Sybil (can't fake hashpower)</li>
+                    <li>Makes voting expensive (one CPU ≈ one vote)</li>
+                    <li>Economic incentives align with honesty</li>
+                    <li>Achieves Byzantine fault tolerance</li>
+                </ol>
+
+                <h3>Q: Two miners find block simultaneously?</h3>
+                <pre>t=0: Both valid, network splits
+t=1: 50% build on Block A
+     50% build on Block B
+t=10: Someone finds Block A'
+      A chain longer → wins
+t=11: All switch to A chain
+      Block B orphaned
+      TXs in B return to mempool</pre>
+
+                <h3>Q: Modify old block?</h3>
+                <p>Must recalculate ALL subsequent blocks (exponentially hard!)</p>
+
+                <h3>Q: Calculate attack success?</h3>
+                <p>Use: P = (q/(1-q))^k</p>
+            </div>
+
+            <div class="section">
+                <h2>QUICK FACTS</h2>
+                <ul class="tight">
+                    <li>Block time: ~10 minutes (target)</li>
+                    <li>Block size: 1-4 MB</li>
+                    <li>TXs/block: ~4000</li>
+                    <li>Throughput: ~7 TPS</li>
+                    <li>Difficulty adjust: Every 2016 blocks (~2 weeks)</li>
+                    <li>Halving: Every 210k blocks (~4 years)</li>
+                    <li>Current reward: 3.125 BTC</li>
+                    <li>Total supply: ~21M BTC</li>
+                    <li>Hash function: SHA-256 (double)</li>
+                    <li>Signature: ECDSA</li>
+                    <li>Confirmations: 6 = standard final</li>
+                    <li>Network size: ~10k-100k nodes</li>
+                    <li>Avg connections: 8 out + 117 in</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

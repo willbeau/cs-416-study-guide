@@ -1,0 +1,2285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Synchronization with Vector Time Pairs | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>File Synchronization with Vector Time Pairs</h1>
+            <p>CS 416 Study Guide - Topic 04</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="overview">
+            <h2>Overview</h2>
+            <p>Welcome to your comprehensive guide on file synchronization using vector time pairs! This is one of the coolest applications of distributed systems concepts - it's what makes services like Dropbox, Google Drive, and OneDrive work behind the scenes. By the end of this guide, you'll understand how these systems detect conflicts and keep your files in sync across multiple devices.</p>
+
+            <div class="callout-info">
+                <strong>Key Reading:</strong> File Synchronization with Vector Time Pairs (MIT-CSAIL-TR 2005, up to Section 3.3)
+            </div>
+        </section>
+
+        <section id="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#the-problem">The Problem: Why File Sync is Hard</a></li>
+                <li><a href="#vector-time-pairs">Vector Time Pairs: The Solution</a></li>
+                <li><a href="#detecting-conflicts">Detecting Conflicts</a></li>
+                <li><a href="#handling-deletions">Handling Deletions</a></li>
+                <li><a href="#real-world-examples">Real-World Examples</a></li>
+                <li><a href="#comparison">Comparison with Other Approaches</a></li>
+                <li><a href="#memory-aids">Memory Aids & Key Takeaways</a></li>
+            </ol>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: File Sync Architecture Overview</h3>
+            <div id="viz-architecture" style="position: relative; min-height: 500px;">
+                <div style="display: flex; justify-content: space-around; margin: 2rem 0; flex-wrap: wrap; gap: 20px;">
+                    <div class="device-viz" data-device="home" style="flex: 1; min-width: 200px; text-align: center;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">🏠</div>
+                        <div style="font-weight: bold; color: var(--primary-color);">Home Computer</div>
+                        <div class="vector-display" style="background: var(--code-bg); padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 12px;">
+                            <div>&lt;H<span class="h-val">0</span>, L<span class="l-val">0</span>, O<span class="o-val">0</span>&gt;</div>
+                        </div>
+                        <div class="device-status" style="color: var(--success-color); font-size: 12px;">Ready</div>
+                    </div>
+                    <div class="device-viz" data-device="laptop" style="flex: 1; min-width: 200px; text-align: center;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">💻</div>
+                        <div style="font-weight: bold; color: var(--primary-color);">Laptop</div>
+                        <div class="vector-display" style="background: var(--code-bg); padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 12px;">
+                            <div>&lt;H<span class="h-val">0</span>, L<span class="l-val">0</span>, O<span class="o-val">0</span>&gt;</div>
+                        </div>
+                        <div class="device-status" style="color: var(--success-color); font-size: 12px;">Ready</div>
+                    </div>
+                    <div class="device-viz" data-device="office" style="flex: 1; min-width: 200px; text-align: center;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">🏢</div>
+                        <div style="font-weight: bold; color: var(--primary-color);">Office Computer</div>
+                        <div class="vector-display" style="background: var(--code-bg); padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; font-size: 12px;">
+                            <div>&lt;H<span class="h-val">0</span>, L<span class="l-val">0</span>, O<span class="o-val">0</span>&gt;</div>
+                        </div>
+                        <div class="device-status" style="color: var(--success-color); font-size: 12px;">Ready</div>
+                    </div>
+                </div>
+                <canvas id="archCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+                <div style="text-align: center; margin: 20px 0;">
+                    <button id="archPlayBtn" style="background: var(--success-color); color: white; border: none; padding: 10px 30px; border-radius: 5px; font-size: 16px; cursor: pointer; margin: 0 10px;">▶ Play Animation</button>
+                    <button id="archResetBtn" style="background: var(--accent-color); color: white; border: none; padding: 10px 30px; border-radius: 5px; font-size: 16px; cursor: pointer; margin: 0 10px;">↻ Reset</button>
+                </div>
+                <div id="archMessage" style="text-align: center; min-height: 60px; padding: 15px; background: var(--code-bg); border-radius: 5px; margin-top: 20px; font-weight: bold;"></div>
+            </div>
+        </div>
+        <script>
+        (function() {
+            const states = [
+                { step: 0, home: [0,0,0], laptop: [0,0,0], office: [0,0,0], message: "All devices in sync with report.docx", status: ['Ready', 'Ready', 'Ready'] },
+                { step: 1, home: [3,0,0], laptop: [0,0,0], office: [0,0,0], message: "Home edits document → H3", status: ['Modified', 'Ready', 'Ready'], arrows: [{from: 'home', to: 'laptop', color: 'green', label: 'Sequential'}] },
+                { step: 2, home: [3,0,0], laptop: [3,0,0], office: [0,0,0], message: "Laptop syncs with Home (sequential update - safe)", status: ['Ready', 'Synced', 'Ready'], arrows: [] },
+                { step: 3, home: [3,0,0], laptop: [3,5,0], office: [0,0,4], message: "Laptop and Office both edit (concurrent!)", status: ['Ready', 'Modified', 'Modified'], arrows: [] },
+                { step: 4, home: [3,0,0], laptop: [3,5,0], office: [0,0,4], message: "⚠️ CONFLICT DETECTED: L5 || O4 (concurrent edits)", status: ['Ready', 'Conflict!', 'Conflict!'], arrows: [{from: 'laptop', to: 'office', color: 'red', label: 'Conflict!'}] }
+            ];
+            let currentStep = 0;
+
+            function updateViz() {
+                const state = states[currentStep];
+                const devices = ['home', 'laptop', 'office'];
+                devices.forEach((device, idx) => {
+                    const div = document.querySelector(`.device-viz[data-device="${device}"]`);
+                    const hVal = div.querySelector('.h-val');
+                    const lVal = div.querySelector('.l-val');
+                    const oVal = div.querySelector('.o-val');
+                    const status = div.querySelector('.device-status');
+
+                    hVal.textContent = state[device][0] || '∅';
+                    lVal.textContent = state[device][1] || '∅';
+                    oVal.textContent = state[device][2] || '∅';
+                    status.textContent = state.status[idx];
+
+                    if (state.status[idx].includes('Conflict')) {
+                        status.style.color = 'var(--accent-color)';
+                        div.style.animation = 'pulse 1s infinite';
+                    } else if (state.status[idx] === 'Modified') {
+                        status.style.color = 'var(--warning-color)';
+                        div.style.animation = '';
+                    } else {
+                        status.style.color = 'var(--success-color)';
+                        div.style.animation = '';
+                    }
+                });
+
+                document.getElementById('archMessage').textContent = state.message;
+                document.getElementById('archMessage').style.background =
+                    state.message.includes('CONFLICT') ? 'rgba(231, 76, 60, 0.2)' :
+                    state.message.includes('sequential') ? 'rgba(39, 174, 96, 0.2)' :
+                    'var(--code-bg)';
+            }
+
+            document.getElementById('archPlayBtn').addEventListener('click', () => {
+                if (currentStep < states.length - 1) {
+                    currentStep++;
+                    updateViz();
+                } else {
+                    currentStep = 0;
+                    updateViz();
+                }
+            });
+
+            document.getElementById('archResetBtn').addEventListener('click', () => {
+                currentStep = 0;
+                updateViz();
+            });
+
+            const style = document.createElement('style');
+            style.textContent = '@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }';
+            document.head.appendChild(style);
+
+            updateViz();
+        })();
+        </script>
+
+        <section id="the-problem">
+            <h2>The Problem: Why File Sync is Hard</h2>
+
+            <h3>The Scenario</h3>
+            <p>Imagine you have three devices: Home computer, Laptop, and Office computer. You're working on a document called <code>report.docx</code> across all three. The challenge is:</p>
+
+            <ul>
+                <li><strong>How do we know which version is the latest?</strong></li>
+                <li><strong>What if two devices edit the file at the same time (concurrently)?</strong></li>
+                <li><strong>How do we detect when there's a conflict?</strong></li>
+            </ul>
+
+            <h3>Real-World Analogy</h3>
+            <p>Think of it like a group project where three people are editing the same Google Doc offline:</p>
+            <ul>
+                <li>Alice edits at home</li>
+                <li>Bob edits on his laptop at a coffee shop</li>
+                <li>Charlie edits at the office</li>
+            </ul>
+            <p>When they all go online, how does the system know which edits to keep? This is exactly what vector time pairs solve!</p>
+
+            <h3>The Core Challenge: Distinguishing Sequential from Concurrent Updates</h3>
+            <p><strong>Sequential updates:</strong> Version B3 was created after seeing version A3</p>
+            <ul>
+                <li>These are safe to apply - just take the newer one!</li>
+            </ul>
+
+            <p><strong>Concurrent updates:</strong> Version A6 and B4 were created independently</p>
+            <ul>
+                <li><strong>Danger!</strong> We can't automatically pick one - we need to flag a conflict!</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Sequential vs Concurrent Updates</h3>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                <!-- Sequential Updates -->
+                <div style="flex: 1; min-width: 300px; border: 2px solid var(--success-color); border-radius: 8px; padding: 20px; background: rgba(39, 174, 96, 0.05);">
+                    <h4 style="color: var(--success-color); margin-top: 0; text-align: center;">✓ Sequential Updates (Safe)</h4>
+                    <svg viewBox="0 0 300 400" style="width: 100%; height: 400px;">
+                        <!-- Device A timeline -->
+                        <line x1="80" y1="50" x2="80" y2="350" stroke="#bdc3c7" stroke-width="2"/>
+                        <text x="80" y="40" text-anchor="middle" font-weight="bold" fill="var(--primary-color)">Device A</text>
+
+                        <!-- Device B timeline -->
+                        <line x1="220" y1="50" x2="220" y2="350" stroke="#bdc3c7" stroke-width="2"/>
+                        <text x="220" y="40" text-anchor="middle" font-weight="bold" fill="var(--primary-color)">Device B</text>
+
+                        <!-- Step 1: A creates A3 -->
+                        <circle cx="80" cy="100" r="8" fill="var(--success-color)"/>
+                        <text x="15" y="105" font-size="12" fill="var(--text-color)">A creates A3</text>
+
+                        <!-- Step 2: Sync to B -->
+                        <line x1="80" y1="150" x2="220" y2="150" stroke="var(--success-color)" stroke-width="3" marker-end="url(#arrowGreen)"/>
+                        <text x="150" y="145" text-anchor="middle" font-size="11" fill="var(--success-color)" font-weight="bold">Sync</text>
+                        <circle cx="220" cy="150" r="8" fill="var(--success-color)"/>
+
+                        <!-- Step 3: B knows about A3 -->
+                        <text x="225" y="175" font-size="11" fill="var(--success-color)">B knows A3 ✓</text>
+
+                        <!-- Step 4: B creates B3 -->
+                        <circle cx="220" cy="230" r="8" fill="var(--success-color)"/>
+                        <text x="225" y="235" font-size="12" fill="var(--text-color)">B creates B3</text>
+                        <text x="225" y="250" font-size="10" fill="var(--success-color)" font-style="italic">(after seeing A3)</text>
+
+                        <!-- Result -->
+                        <rect x="20" y="300" width="260" height="40" fill="var(--success-color)" opacity="0.2" rx="5"/>
+                        <text x="150" y="325" text-anchor="middle" font-weight="bold" fill="var(--success-color)">Safe! B3 happened after A3</text>
+
+                        <!-- Arrow marker -->
+                        <defs>
+                            <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                                <path d="M0,0 L0,6 L9,3 z" fill="var(--success-color)"/>
+                            </marker>
+                        </defs>
+                    </svg>
+                </div>
+
+                <!-- Concurrent Updates -->
+                <div style="flex: 1; min-width: 300px; border: 2px solid var(--accent-color); border-radius: 8px; padding: 20px; background: rgba(231, 76, 60, 0.05);">
+                    <h4 style="color: var(--accent-color); margin-top: 0; text-align: center;">✗ Concurrent Updates (Conflict!)</h4>
+                    <svg viewBox="0 0 300 400" style="width: 100%; height: 400px;">
+                        <!-- Device A timeline -->
+                        <line x1="80" y1="50" x2="80" y2="350" stroke="#bdc3c7" stroke-width="2"/>
+                        <text x="80" y="40" text-anchor="middle" font-weight="bold" fill="var(--primary-color)">Device A</text>
+
+                        <!-- Device B timeline -->
+                        <line x1="220" y1="50" x2="220" y2="350" stroke="#bdc3c7" stroke-width="2"/>
+                        <text x="220" y="40" text-anchor="middle" font-weight="bold" fill="var(--primary-color)">Device B</text>
+
+                        <!-- Both start from same point -->
+                        <circle cx="80" cy="100" r="6" fill="#bdc3c7"/>
+                        <circle cx="220" cy="100" r="6" fill="#bdc3c7"/>
+                        <line x1="80" y1="100" x2="220" y2="100" stroke="#bdc3c7" stroke-width="1" stroke-dasharray="3"/>
+                        <text x="150" y="95" text-anchor="middle" font-size="10" fill="#7f8c8d">Both have same version</text>
+
+                        <!-- Step 1: A creates A6 (no sync) -->
+                        <circle cx="80" cy="180" r="8" fill="var(--accent-color)"/>
+                        <text x="15" y="185" font-size="12" fill="var(--text-color)">A creates A6</text>
+                        <text x="15" y="200" font-size="10" fill="var(--accent-color)" font-style="italic">(offline)</text>
+
+                        <!-- Step 2: B creates B4 (no sync) -->
+                        <circle cx="220" cy="180" r="8" fill="var(--accent-color)"/>
+                        <text x="225" y="185" font-size="12" fill="var(--text-color)">B creates B4</text>
+                        <text x="225" y="200" font-size="10" fill="var(--accent-color)" font-style="italic">(offline)</text>
+
+                        <!-- Conflict indicator -->
+                        <path d="M 80,230 Q 150,250 220,230" stroke="var(--accent-color)" stroke-width="3" fill="none" stroke-dasharray="5"/>
+                        <text x="150" y="265" text-anchor="middle" font-size="11" fill="var(--accent-color)" font-weight="bold">Try to sync...</text>
+
+                        <!-- Result -->
+                        <rect x="20" y="300" width="260" height="40" fill="var(--accent-color)" opacity="0.2" rx="5"/>
+                        <text x="150" y="325" text-anchor="middle" font-weight="bold" fill="var(--accent-color)">CONFLICT! Neither knows about the other</text>
+                    </svg>
+                </div>
+            </div>
+            <div style="background: var(--info-color); color: white; padding: 15px; border-radius: 5px; margin-top: 20px;">
+                <strong>Key Insight:</strong> Sequential updates have a clear causal relationship (one happened AFTER seeing the other). Concurrent updates happen independently without knowledge of each other, requiring manual resolution.
+            </div>
+        </div>
+
+        <section id="vector-time-pairs">
+            <h2>Vector Time Pairs: The Solution</h2>
+
+            <h3>What Are Vector Time Pairs?</h3>
+            <p>Vector time pairs consist of TWO vectors for each file:</p>
+
+            <ol>
+                <li>
+                    <strong>Modification Time Vector</strong> <code>&lt;Ax, By, Cz&gt;</code>
+                    <ul>
+                        <li>"Which version do we have?"</li>
+                        <li>Tracks WHEN the file was last modified on each device</li>
+                        <li>Uses angled brackets: <code>&lt;...&gt;</code></li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Synchronization Time Vector</strong> <code>&lt;&lt;Ap, Bq, Cr&gt;&gt;</code>
+                    <ul>
+                        <li>"How much do we know?"</li>
+                        <li>Tracks what information each device had when it last synced</li>
+                        <li>Uses double angled brackets: <code>&lt;&lt;...&gt;&gt;</code></li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Real-World Analogy</h3>
+            <p>Think of it like a conversation:</p>
+
+            <p><strong>Modification Time:</strong> "I last changed this file when MY clock said 3, and I knew about version 1 from you, and nothing from Charlie"</p>
+            <ul>
+                <li>This is what you DID</li>
+            </ul>
+
+            <p><strong>Sync Time:</strong> "The last time I synced, I knew about version 3 from me, version 4 from you, and version 5 from Charlie"</p>
+            <ul>
+                <li>This is what you KNOW</li>
+            </ul>
+
+            <div class="callout-warning">
+                <strong>Important Rule:</strong> The modification time is always contained in the synchronization time. This makes sense: You always know at least as much as when you made your last change!
+            </div>
+
+            <h3>Example Notation</h3>
+            <pre><code>Modification time: &lt;A1, B4, C∅&gt;
+Sync time: &lt;&lt;A2, B4, C5&gt;&gt;</code></pre>
+
+            <p>This means:</p>
+            <ul>
+                <li>The file was modified when A=1, B=4, C had made no changes</li>
+                <li>When we last synced, we knew about A2, B4, and C5</li>
+                <li>We learned about A2 and C5 AFTER making our modification</li>
+            </ul>
+
+            <div class="callout-success">
+                <strong>Mnemonic:</strong> Think of sync time as your "knowledge level" - it's always ≥ your modification time because you learn more as you sync!
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Vector Time Pairs Components</h3>
+            <div style="text-align: center; margin: 20px 0;">
+                <div style="display: inline-block; background: var(--code-bg); padding: 20px; border-radius: 10px; max-width: 600px;">
+                    <div style="margin: 20px 0; padding: 20px; background: rgba(52, 152, 219, 0.1); border-radius: 8px; border: 2px solid var(--secondary-color);">
+                        <h4 style="margin: 0 0 10px 0; color: var(--secondary-color);">Modification Time Vector</h4>
+                        <div style="font-family: monospace; font-size: 24px; font-weight: bold; color: var(--primary-color);">
+                            &lt;<span class="mod-a" style="cursor: help; padding: 5px; border-radius: 3px;" title="Device A last modified at version 1">A1</span>,
+                            <span class="mod-b" style="cursor: help; padding: 5px; border-radius: 3px;" title="Device B last modified at version 4">B4</span>,
+                            <span class="mod-c" style="cursor: help; padding: 5px; border-radius: 3px;" title="Device C has not modified">C∅</span>&gt;
+                        </div>
+                        <p style="font-size: 14px; color: var(--text-color); margin-top: 10px;">"Which version do we have?"</p>
+                    </div>
+
+                    <div style="text-align: center; margin: 15px 0;">
+                        <div style="font-size: 20px; color: var(--success-color);">⬇</div>
+                        <div style="font-size: 12px; color: var(--text-color); font-style: italic;">Sync time ≥ Mod time</div>
+                    </div>
+
+                    <div style="margin: 20px 0; padding: 20px; background: rgba(39, 174, 96, 0.1); border-radius: 8px; border: 2px solid var(--success-color);">
+                        <h4 style="margin: 0 0 10px 0; color: var(--success-color);">Synchronization Time Vector</h4>
+                        <div style="font-family: monospace; font-size: 24px; font-weight: bold; color: var(--primary-color);">
+                            &lt;&lt;<span class="sync-a" style="cursor: help; padding: 5px; border-radius: 3px;" title="This device knows about Device A version 2">A2</span>,
+                            <span class="sync-b" style="cursor: help; padding: 5px; border-radius: 3px;" title="This device knows about Device B version 4">B4</span>,
+                            <span class="sync-c" style="cursor: help; padding: 5px; border-radius: 3px;" title="This device knows about Device C version 5">C5</span>&gt;&gt;
+                        </div>
+                        <p style="font-size: 14px; color: var(--text-color); margin-top: 10px;">"How much do we know?"</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 30px;">
+                <div class="vector-component" style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; border-left: 4px solid var(--secondary-color);">
+                    <h5 style="margin: 0 0 10px 0; color: var(--secondary-color);">Device A</h5>
+                    <div style="font-size: 12px;">
+                        <div style="margin: 5px 0;">Mod: <code>A1</code> - Modified at version 1</div>
+                        <div style="margin: 5px 0;">Sync: <code>A2</code> - Knows up to version 2</div>
+                        <div style="margin-top: 10px; color: var(--success-color); font-weight: bold;">✓ 2 ≥ 1 (Valid)</div>
+                    </div>
+                </div>
+
+                <div class="vector-component" style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; border-left: 4px solid var(--secondary-color);">
+                    <h5 style="margin: 0 0 10px 0; color: var(--secondary-color);">Device B</h5>
+                    <div style="font-size: 12px;">
+                        <div style="margin: 5px 0;">Mod: <code>B4</code> - Modified at version 4</div>
+                        <div style="margin: 5px 0;">Sync: <code>B4</code> - Knows up to version 4</div>
+                        <div style="margin-top: 10px; color: var(--success-color); font-weight: bold;">✓ 4 ≥ 4 (Valid)</div>
+                    </div>
+                </div>
+
+                <div class="vector-component" style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; border-left: 4px solid var(--secondary-color);">
+                    <h5 style="margin: 0 0 10px 0; color: var(--secondary-color);">Device C</h5>
+                    <div style="font-size: 12px;">
+                        <div style="margin: 5px 0;">Mod: <code>C∅</code> - Never modified</div>
+                        <div style="margin: 5px 0;">Sync: <code>C5</code> - Knows up to version 5</div>
+                        <div style="margin-top: 10px; color: var(--success-color); font-weight: bold;">✓ Learned after mod</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: var(--warning-color); color: white; padding: 15px; border-radius: 5px; margin-top: 20px;">
+                <strong>Important Rule:</strong> For each device position, sync vector value ≥ modification vector value. You always know at least as much as when you made your last change!
+            </div>
+
+            <script>
+            (function() {
+                // Add hover effects
+                const modElements = document.querySelectorAll('.mod-a, .mod-b, .mod-c');
+                const syncElements = document.querySelectorAll('.sync-a, .sync-b, .sync-c');
+
+                modElements.forEach(el => {
+                    el.addEventListener('mouseenter', () => {
+                        el.style.background = 'var(--secondary-color)';
+                        el.style.color = 'white';
+                    });
+                    el.addEventListener('mouseleave', () => {
+                        el.style.background = 'transparent';
+                        el.style.color = 'var(--primary-color)';
+                    });
+                });
+
+                syncElements.forEach(el => {
+                    el.addEventListener('mouseenter', () => {
+                        el.style.background = 'var(--success-color)';
+                        el.style.color = 'white';
+                    });
+                    el.addEventListener('mouseleave', () => {
+                        el.style.background = 'transparent';
+                        el.style.color = 'var(--primary-color)';
+                    });
+                });
+            })();
+            </script>
+        </div>
+
+        <section id="detecting-conflicts">
+            <h2>Detecting Conflicts</h2>
+
+            <h3>The Three Cases: Sequential, Concurrent, or Identical?</h3>
+            <p>When device A wants to sync with device B, we compare their vectors to determine the relationship.</p>
+
+            <h3>Vector Clock Comparison Rules</h3>
+            <p>Given two vector timestamps A and B:</p>
+
+            <ol>
+                <li>
+                    <strong>A = B (Equality):</strong> <code>A[i] = B[i]</code> for all i
+                    <ul>
+                        <li>Same version! No sync needed.</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>A &lt; B (Causality):</strong> <code>A ≠ B</code> AND <code>A[i] ≤ B[i]</code> for all i
+                    <ul>
+                        <li>B knows everything A knows (and more)</li>
+                        <li>B is "newer" - safe to update A with B</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>A || B (Conflict/Concurrency):</strong> For some i ≠ j, <code>A[i] &lt; B[i]</code> AND <code>A[j] &gt; B[j]</code>
+                    <ul>
+                        <li>Neither knows everything the other knows</li>
+                        <li><strong>CONFLICT!</strong> Manual resolution needed</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Real Example from Lecture</h3>
+
+            <h4>Initial State</h4>
+            <pre><code>Device A: File with &lt;A∅, B1, C∅&gt; / &lt;&lt;A∅, B1, C∅&gt;&gt;
+Device B: File with &lt;A∅, B1, C∅&gt; / &lt;&lt;A∅, B1, C∅&gt;&gt;</code></pre>
+
+            <h4>Step 1: A modifies the file (creates A3)</h4>
+            <pre><code>Device A: &lt;A3, B1, C∅&gt; / &lt;&lt;A2, B1, C∅&gt;&gt;  (after local modification)
+          &lt;A3, B1, C∅&gt; / &lt;&lt;A3, B1, C∅&gt;&gt;  (after local sync)</code></pre>
+
+            <h4>Step 2: B modifies the file independently (creates B3)</h4>
+            <pre><code>Device B: &lt;A∅, B3, C∅&gt; / &lt;&lt;A∅, B3, C∅&gt;&gt;</code></pre>
+
+            <h4>Step 3: They try to sync - CONFLICT!</h4>
+            <p>When A tries to update B:</p>
+            <ul>
+                <li>A's modification: <code>&lt;A3, B1, C∅&gt;</code></li>
+                <li>B's modification: <code>&lt;A∅, B3, C∅&gt;</code></li>
+            </ul>
+
+            <p>Compare:</p>
+            <ul>
+                <li>A[0]=3, B[0]=0 → A &gt; B at position 0</li>
+                <li>A[1]=1, B[1]=3 → A &lt; B at position 1</li>
+                <li><strong>This is the conflict pattern!</strong> Neither vector dominates</li>
+            </ul>
+
+            <h3>Why This Works: The Intuition</h3>
+            <p>The conflict detection works because:</p>
+            <ul>
+                <li>If A's version was created AFTER seeing B's, then A would have <code>A[B] ≥ B[B]</code></li>
+                <li>If B's version was created AFTER seeing A's, then B would have <code>B[A] ≥ A[A]</code></li>
+                <li>When BOTH are false, they must have been created concurrently!</li>
+            </ul>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Concurrent Clocks Cross" - when vector elements cross (one higher, one lower), you've got concurrency!
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Conflict Detection Algorithm</h3>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div style="text-align: center;">
+                    <h4 style="color: var(--primary-color);">Device A Vector</h4>
+                    <div style="display: flex; gap: 10px; justify-content: center; margin: 10px 0;">
+                        <div>
+                            <label style="font-size: 12px; display: block;">A</label>
+                            <input type="number" id="vecA0" value="3" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; display: block;">B</label>
+                            <input type="number" id="vecA1" value="1" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; display: block;">C</label>
+                            <input type="number" id="vecA2" value="0" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                    </div>
+                    <div style="font-family: monospace; font-size: 20px; margin-top: 10px;">&lt;<span id="dispA">A3, B1, C∅</span>&gt;</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <h4 style="color: var(--primary-color);">Device B Vector</h4>
+                    <div style="display: flex; gap: 10px; justify-content: center; margin: 10px 0;">
+                        <div>
+                            <label style="font-size: 12px; display: block;">A</label>
+                            <input type="number" id="vecB0" value="0" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; display: block;">B</label>
+                            <input type="number" id="vecB1" value="3" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; display: block;">C</label>
+                            <input type="number" id="vecB2" value="0" min="0" max="9" style="width: 50px; padding: 5px; text-align: center; border: 2px solid var(--secondary-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                    </div>
+                    <div style="font-family: monospace; font-size: 20px; margin-top: 10px;">&lt;<span id="dispB">A∅, B3, C∅</span>&gt;</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin: 20px 0;">
+                <button id="compareBtn" style="background: var(--secondary-color); color: white; border: none; padding: 12px 40px; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;">Compare Vectors</button>
+            </div>
+
+            <div id="comparisonMatrix" style="background: var(--code-bg); padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h4 style="text-align: center; margin-top: 0;">Comparison Matrix</h4>
+                <table style="margin: 0 auto; border-collapse: collapse; width: 100%; max-width: 500px;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 10px; border: 1px solid var(--border-color); background: var(--primary-color); color: white;">Position</th>
+                            <th style="padding: 10px; border: 1px solid var(--border-color); background: var(--primary-color); color: white;">A[i]</th>
+                            <th style="padding: 10px; border: 1px solid var(--border-color); background: var(--primary-color); color: white;">Comparison</th>
+                            <th style="padding: 10px; border: 1px solid var(--border-color); background: var(--primary-color); color: white;">B[i]</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matrixBody">
+                        <tr><td colspan="4" style="padding: 20px; text-align: center; color: #7f8c8d;">Click "Compare Vectors" to analyze</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="resultBox" style="padding: 20px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold; min-height: 80px; display: flex; align-items: center; justify-content: center;"></div>
+
+            <div style="background: var(--code-bg); padding: 15px; border-radius: 5px; margin-top: 20px;">
+                <h5 style="margin: 0 0 10px 0;">Quick Examples:</h5>
+                <button class="exampleBtn" data-a="3,5,2" data-b="3,5,2" style="margin: 5px; padding: 8px 15px; border: 1px solid var(--border-color); background: white; border-radius: 5px; cursor: pointer;">A = B (Equal)</button>
+                <button class="exampleBtn" data-a="2,3,1" data-b="5,4,3" style="margin: 5px; padding: 8px 15px; border: 1px solid var(--border-color); background: white; border-radius: 5px; cursor: pointer;">A &lt; B (Sequential)</button>
+                <button class="exampleBtn" data-a="5,1,2" data-b="2,4,3" style="margin: 5px; padding: 8px 15px; border: 1px solid var(--border-color); background: white; border-radius: 5px; cursor: pointer;">A || B (Conflict!)</button>
+            </div>
+
+            <script>
+            (function() {
+                function updateDisplay() {
+                    const a = [parseInt(document.getElementById('vecA0').value) || 0,
+                              parseInt(document.getElementById('vecA1').value) || 0,
+                              parseInt(document.getElementById('vecA2').value) || 0];
+                    const b = [parseInt(document.getElementById('vecB0').value) || 0,
+                              parseInt(document.getElementById('vecB1').value) || 0,
+                              parseInt(document.getElementById('vecB2').value) || 0];
+
+                    const labels = ['A', 'B', 'C'];
+                    document.getElementById('dispA').textContent =
+                        labels.map((l, i) => l + (a[i] || '∅')).join(', ');
+                    document.getElementById('dispB').textContent =
+                        labels.map((l, i) => l + (b[i] || '∅')).join(', ');
+                }
+
+                function compareVectors() {
+                    const a = [parseInt(document.getElementById('vecA0').value) || 0,
+                              parseInt(document.getElementById('vecA1').value) || 0,
+                              parseInt(document.getElementById('vecA2').value) || 0];
+                    const b = [parseInt(document.getElementById('vecB0').value) || 0,
+                              parseInt(document.getElementById('vecB1').value) || 0,
+                              parseInt(document.getElementById('vecB2').value) || 0];
+
+                    const labels = ['A', 'B', 'C'];
+                    let tbody = '<tr>';
+                    let hasGreater = false, hasLess = false, allEqual = true;
+
+                    for (let i = 0; i < 3; i++) {
+                        let comp = '';
+                        let color = '';
+                        if (a[i] < b[i]) {
+                            comp = '&lt;';
+                            color = 'var(--secondary-color)';
+                            hasLess = true;
+                            allEqual = false;
+                        } else if (a[i] > b[i]) {
+                            comp = '&gt;';
+                            color = 'var(--warning-color)';
+                            hasGreater = true;
+                            allEqual = false;
+                        } else {
+                            comp = '=';
+                            color = 'var(--success-color)';
+                        }
+
+                        tbody += `<tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; font-weight: bold;">${labels[i]}</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">${a[i] || '∅'}</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: ${color}; color: white; font-weight: bold; font-size: 18px;">${comp}</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">${b[i] || '∅'}</td>
+                        </tr>`;
+                    }
+
+                    document.getElementById('matrixBody').innerHTML = tbody;
+
+                    // Determine result
+                    let resultBox = document.getElementById('resultBox');
+                    if (allEqual) {
+                        resultBox.innerHTML = '✓ Vectors are EQUAL<br><span style="font-size: 14px;">Same version - no sync needed</span>';
+                        resultBox.style.background = 'rgba(39, 174, 96, 0.2)';
+                        resultBox.style.border = '3px solid var(--success-color)';
+                        resultBox.style.color = 'var(--success-color)';
+                    } else if (hasGreater && hasLess) {
+                        resultBox.innerHTML = '⚠️ CONFLICT DETECTED (A || B)<br><span style="font-size: 14px;">Cross pattern: concurrent edits!</span>';
+                        resultBox.style.background = 'rgba(231, 76, 60, 0.2)';
+                        resultBox.style.border = '3px solid var(--accent-color)';
+                        resultBox.style.color = 'var(--accent-color)';
+                    } else if (hasGreater) {
+                        resultBox.innerHTML = '✓ A &gt; B (Sequential)<br><span style="font-size: 14px;">Copy A → B (A is newer)</span>';
+                        resultBox.style.background = 'rgba(52, 152, 219, 0.2)';
+                        resultBox.style.border = '3px solid var(--secondary-color)';
+                        resultBox.style.color = 'var(--secondary-color)';
+                    } else {
+                        resultBox.innerHTML = '✓ A &lt; B (Sequential)<br><span style="font-size: 14px;">Copy B → A (B is newer)</span>';
+                        resultBox.style.background = 'rgba(52, 152, 219, 0.2)';
+                        resultBox.style.border = '3px solid var(--secondary-color)';
+                        resultBox.style.color = 'var(--secondary-color)';
+                    }
+                }
+
+                // Event listeners
+                document.getElementById('compareBtn').addEventListener('click', compareVectors);
+
+                ['vecA0', 'vecA1', 'vecA2', 'vecB0', 'vecB1', 'vecB2'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', updateDisplay);
+                });
+
+                document.querySelectorAll('.exampleBtn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const aVals = btn.dataset.a.split(',');
+                        const bVals = btn.dataset.b.split(',');
+                        document.getElementById('vecA0').value = aVals[0];
+                        document.getElementById('vecA1').value = aVals[1];
+                        document.getElementById('vecA2').value = aVals[2];
+                        document.getElementById('vecB0').value = bVals[0];
+                        document.getElementById('vecB1').value = bVals[1];
+                        document.getElementById('vecB2').value = bVals[2];
+                        updateDisplay();
+                        setTimeout(compareVectors, 100);
+                    });
+                });
+
+                updateDisplay();
+            })();
+            </script>
+        </div>
+
+        <section id="synchronization-procedure">
+            <h2>Synchronization Procedure</h2>
+
+            <h3>Step-by-Step Algorithm</h3>
+            <p>When device A wants to sync a file with device B:</p>
+
+            <ol>
+                <li>
+                    <strong>Compare modification vectors</strong>
+                    <ul>
+                        <li>If <code>mod_A &lt; mod_B</code>: B's version is newer → Copy B to A</li>
+                        <li>If <code>mod_A &gt; mod_B</code>: A's version is newer → Copy A to B</li>
+                        <li>If <code>mod_A = mod_B</code>: Same version → Do nothing</li>
+                        <li>If <code>mod_A || mod_B</code>: <strong>CONFLICT</strong> → User intervention required</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Update sync vectors</strong>
+                    <ul>
+                        <li>After successful sync, update both sync vectors to the maximum of both:</li>
+                        <li><code>sync_new[i] = max(sync_A[i], sync_B[i])</code> for all i</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Conflict Resolution Options</h3>
+            <p>When a conflict is detected, users have three options:</p>
+
+            <ol>
+                <li>
+                    <strong>Manual Merge:</strong> Create a hybrid version (like Git merge conflicts)
+                    <ul>
+                        <li>New modification time combines both: <code>&lt;A3, B4, C∅&gt;</code></li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Overwrite:</strong> Pick one version and discard the other
+                    <ul>
+                        <li>Keep A3: Update B's file to A's content</li>
+                        <li>Keep B4: Update A's file to B's content</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Keep Both:</strong> Save as separate files
+                    <ul>
+                        <li><code>report.docx</code> (A's version)</li>
+                        <li><code>report (conflict).docx</code> (B's version)</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Example Walkthrough with Sync Vectors</h3>
+            <p>Let's see how sync vectors prevent false conflicts:</p>
+
+            <h4>Scenario: Manual Overwrite</h4>
+            <pre><code>Time 1:
+A: &lt;A∅, B1, C∅&gt; / &lt;&lt;A∅, B1, C∅&gt;&gt;
+B: &lt;A∅, B1, C∅&gt; / &lt;&lt;A∅, B1, C∅&gt;&gt;
+
+Time 2: A creates A3
+A: &lt;A3, B1, C∅&gt; / &lt;&lt;A3, B1, C∅&gt;&gt;
+
+Time 3: B creates B3 (concurrent with A3)
+B: &lt;A∅, B3, C∅&gt; / &lt;&lt;A∅, B3, C∅&gt;&gt;
+
+Time 4: Conflict detected! User chooses to keep B3
+A: &lt;A∅, B3, C∅&gt; / &lt;&lt;A∅, B3, C4&gt;&gt;  (manually overwritten)
+B: &lt;A∅, B3, C∅&gt; / &lt;&lt;A∅, B3, C5&gt;&gt;  (sync vector updated)
+
+Time 5: A creates A3 again
+A: &lt;A3, B1, C∅&gt; / &lt;&lt;A3, B4, C∅&gt;&gt;  (new modification)
+
+Time 6: Sync A and B - NO CONFLICT this time!</code></pre>
+
+            <p><strong>Why no conflict at Time 6?</strong></p>
+
+            <p>Without sync vectors, we'd see:</p>
+            <ul>
+                <li>A: <code>&lt;A3, B1, C∅&gt;</code> vs B: <code>&lt;A∅, B3, C∅&gt;</code> → Looks like a conflict!</li>
+            </ul>
+
+            <p>With sync vectors:</p>
+            <ul>
+                <li>A's sync: <code>&lt;&lt;A3, B4, C∅&gt;&gt;</code></li>
+                <li>B's mod: <code>&lt;A∅, B3, C∅&gt;</code></li>
+                <li>Since B3 &lt; B4 (in A's sync vector), A already knows about B3!</li>
+                <li><strong>No conflict - A's version is genuinely newer</strong></li>
+            </ul>
+
+            <div class="callout-success">
+                <strong>Key Insight:</strong> Sync vectors remember what we've already seen, preventing false positives!
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Synchronization Timeline</h3>
+
+            <div id="timeline-viz" style="min-height: 300px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                    <div style="border: 2px solid var(--secondary-color); border-radius: 8px; padding: 15px; background: rgba(52, 152, 219, 0.05);">
+                        <h4 style="margin: 0 0 10px 0; text-align: center; color: var(--secondary-color);">Device A</h4>
+                        <div id="deviceA-mod" style="font-family: monospace; font-size: 16px; padding: 8px; background: var(--code-bg); border-radius: 5px; margin: 5px 0;">
+                            Mod: &lt;<span class="a-mod">A∅, B1, C∅</span>&gt;
+                        </div>
+                        <div id="deviceA-sync" style="font-family: monospace; font-size: 16px; padding: 8px; background: var(--code-bg); border-radius: 5px; margin: 5px 0;">
+                            Sync: &lt;&lt;<span class="a-sync">A∅, B1, C∅</span>&gt;&gt;
+                        </div>
+                    </div>
+                    <div style="border: 2px solid var(--secondary-color); border-radius: 8px; padding: 15px; background: rgba(52, 152, 219, 0.05);">
+                        <h4 style="margin: 0 0 10px 0; text-align: center; color: var(--secondary-color);">Device B</h4>
+                        <div id="deviceB-mod" style="font-family: monospace; font-size: 16px; padding: 8px; background: var(--code-bg); border-radius: 5px; margin: 5px 0;">
+                            Mod: &lt;<span class="b-mod">A∅, B1, C∅</span>&gt;
+                        </div>
+                        <div id="deviceB-sync" style="font-family: monospace; font-size: 16px; padding: 8px; background: var(--code-bg); border-radius: 5px; margin: 5px 0;">
+                            Sync: &lt;&lt;<span class="b-sync">A∅, B1, C∅</span>&gt;&gt;
+                        </div>
+                    </div>
+                </div>
+
+                <div id="timeline-event" style="padding: 20px; border-radius: 8px; text-align: center; min-height: 100px; margin: 20px 0; background: var(--code-bg); border: 2px solid var(--border-color);">
+                    <h4 style="margin: 0 0 10px 0;">Time 1: Initial State</h4>
+                    <p style="margin: 0;">Both devices have the same version</p>
+                </div>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <button id="timeline-prev" style="background: var(--border-color); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 0 5px;">◀ Previous</button>
+                    <span id="timeline-step" style="display: inline-block; min-width: 100px; font-weight: bold;">Step 1 of 6</span>
+                    <button id="timeline-next" style="background: var(--success-color); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 0 5px;">Next ▶</button>
+                    <button id="timeline-reset" style="background: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 0 5px;">↻ Reset</button>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const timelineSteps = [
+                    {
+                        time: 1,
+                        title: "Time 1: Initial State",
+                        desc: "Both devices have the same version",
+                        aMod: "A∅, B1, C∅", aSync: "A∅, B1, C∅",
+                        bMod: "A∅, B1, C∅", bSync: "A∅, B1, C∅",
+                        bg: "var(--code-bg)", border: "var(--border-color)"
+                    },
+                    {
+                        time: 2,
+                        title: "Time 2: A creates A3",
+                        desc: "Device A modifies the file and updates its vectors",
+                        aMod: "A3, B1, C∅", aSync: "A3, B1, C∅",
+                        bMod: "A∅, B1, C∅", bSync: "A∅, B1, C∅",
+                        bg: "rgba(52, 152, 219, 0.1)", border: "var(--secondary-color)"
+                    },
+                    {
+                        time: 3,
+                        title: "Time 3: B creates B3 (concurrent with A3)",
+                        desc: "Device B modifies independently - neither knows about the other!",
+                        aMod: "A3, B1, C∅", aSync: "A3, B1, C∅",
+                        bMod: "A∅, B3, C∅", bSync: "A∅, B3, C∅",
+                        bg: "rgba(243, 156, 18, 0.2)", border: "var(--warning-color)"
+                    },
+                    {
+                        time: 4,
+                        title: "Time 4: Conflict Detected! User keeps B3",
+                        desc: "A3 || B3 detected. User manually overwrites A with B3. Sync vectors updated to remember this.",
+                        aMod: "A∅, B3, C∅", aSync: "A∅, B3, C4",
+                        bMod: "A∅, B3, C∅", bSync: "A∅, B3, C5",
+                        bg: "rgba(231, 76, 60, 0.2)", border: "var(--accent-color)"
+                    },
+                    {
+                        time: 5,
+                        title: "Time 5: A creates A3 again",
+                        desc: "Device A makes a new modification",
+                        aMod: "A3, B1, C∅", aSync: "A3, B4, C∅",
+                        bMod: "A∅, B3, C∅", bSync: "A∅, B3, C5",
+                        bg: "rgba(52, 152, 219, 0.1)", border: "var(--secondary-color)"
+                    },
+                    {
+                        time: 6,
+                        title: "Time 6: Sync A and B - NO CONFLICT!",
+                        desc: "A's sync vector shows B4, which is > B3. A already knows about B's version - no conflict!",
+                        aMod: "A3, B1, C∅", aSync: "A3, B4, C∅",
+                        bMod: "A∅, B3, C∅", bSync: "A∅, B3, C5",
+                        bg: "rgba(39, 174, 96, 0.2)", border: "var(--success-color)"
+                    }
+                ];
+
+                let currentStep = 0;
+
+                function updateTimeline() {
+                    const step = timelineSteps[currentStep];
+                    document.querySelector('.a-mod').textContent = step.aMod;
+                    document.querySelector('.a-sync').textContent = step.aSync;
+                    document.querySelector('.b-mod').textContent = step.bMod;
+                    document.querySelector('.b-sync').textContent = step.bSync;
+
+                    const eventBox = document.getElementById('timeline-event');
+                    eventBox.innerHTML = `<h4 style="margin: 0 0 10px 0;">${step.title}</h4><p style="margin: 0;">${step.desc}</p>`;
+                    eventBox.style.background = step.bg;
+                    eventBox.style.border = `2px solid ${step.border}`;
+
+                    document.getElementById('timeline-step').textContent = `Step ${currentStep + 1} of ${timelineSteps.length}`;
+                    document.getElementById('timeline-prev').disabled = currentStep === 0;
+                    document.getElementById('timeline-next').disabled = currentStep === timelineSteps.length - 1;
+
+                    if (currentStep === 0) {
+                        document.getElementById('timeline-prev').style.background = '#bdc3c7';
+                        document.getElementById('timeline-prev').style.cursor = 'not-allowed';
+                    } else {
+                        document.getElementById('timeline-prev').style.background = 'var(--border-color)';
+                        document.getElementById('timeline-prev').style.cursor = 'pointer';
+                    }
+
+                    if (currentStep === timelineSteps.length - 1) {
+                        document.getElementById('timeline-next').style.background = '#bdc3c7';
+                        document.getElementById('timeline-next').style.cursor = 'not-allowed';
+                    } else {
+                        document.getElementById('timeline-next').style.background = 'var(--success-color)';
+                        document.getElementById('timeline-next').style.cursor = 'pointer';
+                    }
+                }
+
+                document.getElementById('timeline-next').addEventListener('click', () => {
+                    if (currentStep < timelineSteps.length - 1) {
+                        currentStep++;
+                        updateTimeline();
+                    }
+                });
+
+                document.getElementById('timeline-prev').addEventListener('click', () => {
+                    if (currentStep > 0) {
+                        currentStep--;
+                        updateTimeline();
+                    }
+                });
+
+                document.getElementById('timeline-reset').addEventListener('click', () => {
+                    currentStep = 0;
+                    updateTimeline();
+                });
+
+                updateTimeline();
+            })();
+            </script>
+        </div>
+
+        <section id="handling-deletions">
+            <h2>Handling Deletions</h2>
+            <p>Deletions are tricky in distributed systems. Consider this scenario:</p>
+
+            <h3>The Deletion Problem</h3>
+            <pre><code>Device A: Has file with &lt;A2, B∅, C∅&gt;
+Device B: Deletes the file</code></pre>
+
+            <p>When they sync:</p>
+            <ul>
+                <li>Does B's deletion win? (File should be deleted on A)</li>
+                <li>Or does A's existence win? (File should be re-created on B)</li>
+            </ul>
+
+            <h3>Solution: Creation Times (CT)</h3>
+            <p>Each file gets a <strong>creation time</strong> vector that never changes (unless the file is recreated).</p>
+
+            <h4>Example 1: Sequential Delete (Safe)</h4>
+            <pre><code>Time 1: File created on A
+A: &lt;A1, B∅, C∅&gt; / CT = A1
+
+Time 2: File syncs to B
+B: &lt;A2, B∅, C∅&gt; / CT = A1  (same creation time!)
+
+Time 3: B deletes the file
+B: File deleted, but remembers CT = A1
+
+Time 4: Sync - should A delete the file?
+- A's modification: &lt;A2, B∅, C∅&gt;
+- B's deletion knows about A2 (it came from A2)
+- A's modification happened BEFORE the delete
+- **Delete wins!**</code></pre>
+
+            <h4>Example 2: Concurrent Create/Delete (Conflict)</h4>
+            <pre><code>Time 1: B deletes old file (CT = A1)
+
+Time 2: A independently creates NEW file
+A: &lt;A∅, B4, C∅&gt; / CT = B4  (different creation time!)
+
+Time 3: Sync
+- A's file has CT = B4 (created independently)
+- B's delete refers to CT = A1 (different file!)
+- **CONFLICT!** These are two different files</code></pre>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Creation time is the file's birth certificate" - it proves identity. Different CT = different file!
+            </div>
+
+            <h3>The Three Deletion Cases</h3>
+            <ol>
+                <li><strong>Sequential delete:</strong> Modification CT matches deletion CT → Delete wins</li>
+                <li><strong>Concurrent delete:</strong> Modification CT differs from deletion CT → File wins (conflict)</li>
+                <li><strong>Recreate after delete:</strong> New creation with different CT → New file wins</li>
+            </ol>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Deletion Handling</h3>
+
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin: 20px 0;">
+                <!-- Scenario 1: Sequential Delete -->
+                <div style="flex: 1; min-width: 280px; border: 2px solid var(--success-color); border-radius: 8px; padding: 15px; background: rgba(39, 174, 96, 0.05);">
+                    <h4 style="color: var(--success-color); margin: 0 0 15px 0; text-align: center;">Sequential Delete ✓</h4>
+                    <div style="position: relative; padding: 10px;">
+                        <div style="background: white; border: 2px solid var(--info-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 1: File Created</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device A: 📄 file.txt<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--success-color); font-size: 20px;">⬇</div>
+                        <div style="background: white; border: 2px solid var(--info-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 2: Synced</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device A: 📄 file.txt<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = A1</span><br>
+                                Device B: 📄 file.txt<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--success-color); font-size: 20px;">⬇</div>
+                        <div style="background: white; border: 2px solid var(--accent-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 3: B Deletes</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device B: 🗑️ Deleted<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">Remembers 🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--success-color); font-size: 20px;">⬇</div>
+                        <div style="background: rgba(39, 174, 96, 0.2); border: 2px solid var(--success-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--success-color);">Result: Delete Wins</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                CT matches → Same file<br>
+                                File deleted on A too ✓
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scenario 2: Concurrent Create/Delete -->
+                <div style="flex: 1; min-width: 280px; border: 2px solid var(--accent-color); border-radius: 8px; padding: 15px; background: rgba(231, 76, 60, 0.05);">
+                    <h4 style="color: var(--accent-color); margin: 0 0 15px 0; text-align: center;">Concurrent Create/Delete ⚠️</h4>
+                    <div style="position: relative; padding: 10px;">
+                        <div style="background: white; border: 2px solid var(--info-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 1: B Deletes Old</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device B: 🗑️ Deleted old.txt<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">Remembers 🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--warning-color); font-size: 20px;">⬇</div>
+                        <div style="background: white; border: 2px solid var(--info-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 2: A Creates NEW</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device A: 📄 file.txt (new!)<br>
+                                <span style="background: rgba(52, 152, 219, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = B4</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--accent-color); font-size: 20px;">⬇</div>
+                        <div style="background: rgba(231, 76, 60, 0.2); border: 2px solid var(--accent-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--accent-color);">Result: CONFLICT!</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 A1</span> ≠
+                                <span style="background: rgba(52, 152, 219, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 B4</span><br>
+                                Different files!<br>
+                                File wins (keep A's)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scenario 3: Recreate After Delete -->
+                <div style="flex: 1; min-width: 280px; border: 2px solid var(--secondary-color); border-radius: 8px; padding: 15px; background: rgba(52, 152, 219, 0.05);">
+                    <h4 style="color: var(--secondary-color); margin: 0 0 15px 0; text-align: center;">Recreate After Delete ✓</h4>
+                    <div style="position: relative; padding: 10px;">
+                        <div style="background: white; border: 2px solid var(--info-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 1: Original File</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Both: 📄 file.txt<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--secondary-color); font-size: 20px;">⬇</div>
+                        <div style="background: white; border: 2px solid var(--accent-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 2: Deleted</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Both: 🗑️ Deleted<br>
+                                <span style="background: rgba(22, 160, 133, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">Forgot 🎫 CT = A1</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--secondary-color); font-size: 20px;">⬇</div>
+                        <div style="background: white; border: 2px solid var(--success-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--primary-color);">Time 3: Recreated</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                Device A: 📄 file.txt (new!)<br>
+                                <span style="background: rgba(52, 152, 219, 0.2); padding: 2px 5px; border-radius: 3px; font-family: monospace;">🎫 CT = A5</span>
+                            </div>
+                        </div>
+                        <div style="text-align: center; color: var(--success-color); font-size: 20px;">⬇</div>
+                        <div style="background: rgba(52, 152, 219, 0.2); border: 2px solid var(--secondary-color); border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <div style="font-weight: bold; color: var(--secondary-color);">Result: New File Wins</div>
+                            <div style="font-size: 12px; margin: 5px 0;">
+                                New CT → Different file<br>
+                                Syncs to B as new file ✓
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: var(--info-color); color: white; padding: 15px; border-radius: 5px; margin-top: 20px;">
+                <strong>Key Insight:</strong> Creation Time (CT) acts as a "birth certificate" - it uniquely identifies which file we're talking about. Different CT = different file, even with the same name!
+            </div>
+        </div>
+
+        <section id="real-world-examples">
+            <h2>Real-World Examples</h2>
+
+            <h3>Example 1: The Dropbox Workflow</h3>
+            <p>Imagine you're working on a presentation:</p>
+
+            <pre><code>Monday Morning (Home):
+Home: Edit slides.pptx → &lt;H3, L∅, O∅&gt;
+
+Monday Afternoon (Office - offline):
+Office: Edit slides.pptx → &lt;H∅, L∅, O2&gt;
+
+Monday Evening (Home syncs with Office):
+CONFLICT!
+- Home: &lt;H3, L∅, O∅&gt;
+- Office: &lt;H∅, L∅, O2&gt;
+- H3 || O2 (concurrent edits)
+
+Result:
+- slides.pptx (your version)
+- slides (Office's conflicted copy).pptx</code></pre>
+
+            <h3>Example 2: Three-Way Sync</h3>
+            <pre><code>Initial: Everyone has &lt;A1, B1, C1&gt;
+
+Device A: Creates &lt;A5, B1, C1&gt; / &lt;&lt;A5, B1, C1&gt;&gt;
+Device B: Creates &lt;A1, B3, C1&gt; / &lt;&lt;A1, B3, C1&gt;&gt;
+Device C: Syncs with both
+
+C syncs with A:
+C: &lt;A5, B1, C1&gt; / &lt;&lt;A5, B1, C1&gt;&gt;
+
+C syncs with B: CONFLICT!
+- C has &lt;A5, B1, C1&gt; / &lt;&lt;A5, B1, C1&gt;&gt;
+- B has &lt;A1, B3, C1&gt; / &lt;&lt;A1, B3, C1&gt;&gt;
+- A5 &gt; A1 and B1 &lt; B3 → Concurrent!
+
+Resolution: User merges → &lt;A5, B3, C2&gt;
+C: &lt;A5, B3, C2&gt; / &lt;&lt;A5, B3, C2&gt;&gt;
+
+Now B syncs with C:
+- B's sync vector: &lt;&lt;A1, B3, C1&gt;&gt;
+- C's modification: &lt;A5, B3, C2&gt;
+- B's B3 ≤ C's B3 ✓
+- B's A1 ≤ C's A5 ✓
+- **C dominates! No conflict, safe to update B**</code></pre>
+
+            <h3>Example 3: The Offline Edit Scenario</h3>
+            <p>You're on a plane (offline) editing a document that your colleague also edits:</p>
+
+            <pre><code>Before Flight:
+You: &lt;A5, B3, C2&gt; / &lt;&lt;A5, B3, C2&gt;&gt;
+Colleague: &lt;A5, B3, C2&gt; / &lt;&lt;A5, B3, C2&gt;&gt;
+
+During Flight (both offline):
+You: &lt;A7, B3, C2&gt; / &lt;&lt;A7, B3, C2&gt;&gt;
+Colleague: &lt;A5, B6, C2&gt; / &lt;&lt;A5, B6, C2&gt;&gt;
+
+After Flight (online):
+CONFLICT DETECTED!
+- Your A7 &gt; Colleague's A5
+- Your B3 &lt; Colleague's B6
+- Concurrent edits!
+
+Manual Resolution:
+You merge changes → &lt;A7, B6, C3&gt;
+
+Final State:
+You: &lt;A7, B6, C3&gt; / &lt;&lt;A7, B6, C3&gt;&gt;
+Colleague (after sync): &lt;A7, B6, C3&gt; / &lt;&lt;A7, B6, C3&gt;&gt;</code></pre>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Real-World Sync Scenarios</h3>
+
+            <div style="display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap;">
+                <button class="scenario-tab" data-scenario="dropbox" style="padding: 10px 20px; border: 2px solid var(--secondary-color); background: var(--secondary-color); color: white; border-radius: 5px; cursor: pointer; font-weight: bold;">Dropbox Workflow</button>
+                <button class="scenario-tab" data-scenario="threeway" style="padding: 10px 20px; border: 2px solid var(--border-color); background: white; color: var(--primary-color); border-radius: 5px; cursor: pointer;">Three-Way Sync</button>
+                <button class="scenario-tab" data-scenario="offline" style="padding: 10px 20px; border: 2px solid var(--border-color); background: white; color: var(--primary-color); border-radius: 5px; cursor: pointer;">Offline Edit</button>
+            </div>
+
+            <div id="scenario-content" style="min-height: 400px; padding: 20px; background: var(--code-bg); border-radius: 8px;">
+                <!-- Content will be loaded here -->
+            </div>
+
+            <script>
+            (function() {
+                const scenarios = {
+                    dropbox: {
+                        title: "Dropbox Workflow - Concurrent Home & Office Edits",
+                        content: `
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                                <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+                                    <div style="font-size: 40px;">🏠</div>
+                                    <h4 style="color: var(--primary-color);">Home Computer</h4>
+                                    <div style="background: rgba(52, 152, 219, 0.1); padding: 10px; border-radius: 5px; margin: 10px 0;">
+                                        <div style="font-size: 12px; text-align: left;">
+                                            <strong>Monday Morning:</strong><br>
+                                            Edit slides.pptx<br>
+                                            <code>&lt;H3, L∅, O∅&gt;</code>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="text-align: center; padding: 15px; background: white; border-radius: 8px;">
+                                    <div style="font-size: 40px;">🏢</div>
+                                    <h4 style="color: var(--primary-color);">Office Computer</h4>
+                                    <div style="background: rgba(52, 152, 219, 0.1); padding: 10px; border-radius: 5px; margin: 10px 0;">
+                                        <div style="font-size: 12px; text-align: left;">
+                                            <strong>Monday Afternoon (offline):</strong><br>
+                                            Edit slides.pptx<br>
+                                            <code>&lt;H∅, L∅, O2&gt;</code>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: center; margin: 20px 0; font-size: 24px; color: var(--accent-color);">⚠️</div>
+                            <div style="background: rgba(231, 76, 60, 0.2); padding: 20px; border-radius: 8px; border: 2px solid var(--accent-color);">
+                                <h4 style="color: var(--accent-color); margin: 0 0 10px 0;">Monday Evening: CONFLICT DETECTED!</h4>
+                                <div style="font-size: 14px;">
+                                    <strong>Comparison:</strong><br>
+                                    Home: <code>&lt;H3, L∅, O∅&gt;</code> vs Office: <code>&lt;H∅, L∅, O2&gt;</code><br>
+                                    H3 > H∅ but O∅ &lt; O2 → <strong>Concurrent edits (H3 || O2)</strong>
+                                </div>
+                            </div>
+                            <div style="text-align: center; margin: 20px 0; font-size: 24px;">⬇️</div>
+                            <div style="background: rgba(243, 156, 18, 0.2); padding: 20px; border-radius: 8px; border: 2px solid var(--warning-color);">
+                                <h4 style="color: var(--warning-color); margin: 0 0 10px 0;">Resolution: Keep Both Files</h4>
+                                <div style="font-size: 14px;">
+                                    📄 <code>slides.pptx</code> (your version)<br>
+                                    📄 <code>slides (Office's conflicted copy).pptx</code>
+                                </div>
+                            </div>
+                        `
+                    },
+                    threeway: {
+                        title: "Three-Way Sync - C Acts as Intermediary",
+                        content: `
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
+                                <div style="text-align: center; padding: 10px; background: white; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                                    <h5 style="margin: 0; color: var(--primary-color);">Device A</h5>
+                                    <div style="font-size: 11px; margin: 10px 0;">
+                                        <code>&lt;A5, B1, C1&gt;</code>
+                                    </div>
+                                </div>
+                                <div style="text-align: center; padding: 10px; background: white; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                                    <h5 style="margin: 0; color: var(--primary-color);">Device B</h5>
+                                    <div style="font-size: 11px; margin: 10px 0;">
+                                        <code>&lt;A1, B3, C1&gt;</code>
+                                    </div>
+                                </div>
+                                <div style="text-align: center; padding: 10px; background: white; border-radius: 8px; border: 2px solid var(--success-color);">
+                                    <h5 style="margin: 0; color: var(--success-color);">Device C (Hub)</h5>
+                                    <div style="font-size: 11px; margin: 10px 0;">
+                                        <code>&lt;A1, B1, C1&gt;</code>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--secondary-color);">
+                                <strong>Step 1:</strong> C syncs with A<br>
+                                <div style="font-size: 12px; margin-top: 5px;">
+                                    C copies A's version → <code>&lt;A5, B1, C1&gt; / &lt;&lt;A5, B1, C1&gt;&gt;</code>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--accent-color);">
+                                <strong>Step 2:</strong> C syncs with B → CONFLICT!<br>
+                                <div style="font-size: 12px; margin-top: 5px;">
+                                    C's <code>&lt;A5, B1&gt;</code> vs B's <code>&lt;A1, B3&gt;</code><br>
+                                    User merges: <code>&lt;A5, B3, C2&gt;</code>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(39, 174, 96, 0.1); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--success-color);">
+                                <strong>Step 3:</strong> B syncs with C → No Conflict!<br>
+                                <div style="font-size: 12px; margin-top: 5px;">
+                                    C's <code>&lt;A5, B3, C2&gt;</code> dominates B's <code>&lt;A1, B3&gt;</code><br>
+                                    All devices now have merged version ✓
+                                </div>
+                            </div>
+                        `
+                    },
+                    offline: {
+                        title: "Offline Edit Scenario - Airplane Mode",
+                        content: `
+                            <div style="text-align: center; margin: 20px 0;">
+                                <div style="background: rgba(39, 174, 96, 0.1); padding: 20px; border-radius: 8px; display: inline-block; max-width: 500px;">
+                                    <h4 style="color: var(--success-color); margin: 0 0 10px 0;">Before Flight: Both In Sync</h4>
+                                    <div style="font-size: 14px;">
+                                        You: <code>&lt;A5, B3, C2&gt; / &lt;&lt;A5, B3, C2&gt;&gt;</code><br>
+                                        Colleague: <code>&lt;A5, B3, C2&gt; / &lt;&lt;A5, B3, C2&gt;&gt;</code>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="text-align: center; margin: 20px 0;">
+                                <div style="font-size: 40px;">✈️</div>
+                                <div style="color: var(--warning-color); font-weight: bold;">Both Offline</div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                                <div style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                                    <div style="font-size: 30px; text-align: center;">✈️ 📱</div>
+                                    <h5 style="color: var(--primary-color); text-align: center;">You (on plane)</h5>
+                                    <div style="font-size: 13px;">
+                                        Edit document offline<br>
+                                        <code>&lt;A7, B3, C2&gt;</code>
+                                    </div>
+                                </div>
+                                <div style="background: rgba(52, 152, 219, 0.1); padding: 15px; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                                    <div style="font-size: 30px; text-align: center;">🏢 💻</div>
+                                    <h5 style="color: var(--primary-color); text-align: center;">Colleague (at office)</h5>
+                                    <div style="font-size: 13px;">
+                                        Edit document offline<br>
+                                        <code>&lt;A5, B6, C2&gt;</code>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="text-align: center; margin: 20px 0;">
+                                <div style="font-size: 40px;">📡</div>
+                                <div style="color: var(--success-color); font-weight: bold;">Back Online!</div>
+                            </div>
+
+                            <div style="background: rgba(231, 76, 60, 0.2); padding: 20px; border-radius: 8px; border: 2px solid var(--accent-color);">
+                                <h4 style="color: var(--accent-color); margin: 0 0 10px 0; text-align: center;">⚠️ CONFLICT DETECTED</h4>
+                                <div style="font-size: 14px; text-align: center;">
+                                    Your A7 &gt; Colleague's A5<br>
+                                    Your B3 &lt; Colleague's B6<br>
+                                    <strong>Cross pattern detected!</strong><br><br>
+                                    <div style="background: white; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                                        💡 <strong>Resolution:</strong> You merge changes manually<br>
+                                        Result: <code>&lt;A7, B6, C3&gt;</code>
+                                    </div>
+                                </div>
+                            </div>
+                        `
+                    }
+                };
+
+                function loadScenario(name) {
+                    const scenario = scenarios[name];
+                    document.getElementById('scenario-content').innerHTML = `
+                        <h4 style="color: var(--primary-color); margin: 0 0 15px 0;">${scenario.title}</h4>
+                        ${scenario.content}
+                    `;
+
+                    // Update tab styles
+                    document.querySelectorAll('.scenario-tab').forEach(tab => {
+                        if (tab.dataset.scenario === name) {
+                            tab.style.background = 'var(--secondary-color)';
+                            tab.style.color = 'white';
+                            tab.style.borderColor = 'var(--secondary-color)';
+                        } else {
+                            tab.style.background = 'white';
+                            tab.style.color = 'var(--primary-color)';
+                            tab.style.borderColor = 'var(--border-color)';
+                        }
+                    });
+                }
+
+                document.querySelectorAll('.scenario-tab').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        loadScenario(tab.dataset.scenario);
+                    });
+                });
+
+                // Load default scenario
+                loadScenario('dropbox');
+            })();
+            </script>
+        </div>
+
+        <section id="comparison">
+            <h2>Comparison with Other Approaches</h2>
+
+            <h3>Vector Time Pairs vs. Last-Write-Wins (LWW)</h3>
+            <p><strong>Last-Write-Wins</strong> (like simple timestamp systems):</p>
+            <ul>
+                <li>Uses wall-clock time</li>
+                <li>Latest timestamp always wins</li>
+                <li><strong>Problem:</strong> Can lose concurrent edits!</li>
+            </ul>
+
+            <pre><code>Example with LWW:
+A edits at 2:00 PM: timestamp = 1400
+B edits at 2:05 PM: timestamp = 1405
+Result: B wins, A's edits LOST! ❌
+
+With Vector Time Pairs:
+A: &lt;A3, B1, C∅&gt;
+B: &lt;A1, B2, C∅&gt;
+Result: CONFLICT detected, user can merge! ✓</code></pre>
+
+            <div class="callout-warning">
+                <strong>Key Difference:</strong> Vector time pairs DETECT concurrency; LWW HIDES it.
+            </div>
+
+            <h3>Vector Time Pairs vs. Version Vectors</h3>
+            <p><strong>Version Vectors:</strong> Single vector per file</p>
+            <ul>
+                <li>Tracks all modifications from all replicas</li>
+                <li>Example: <code>[A:3, B:2, C:1]</code></li>
+            </ul>
+
+            <p><strong>Vector Time Pairs:</strong> TWO vectors per file</p>
+            <ul>
+                <li>Modification vector + Sync vector</li>
+                <li>More information = better conflict resolution</li>
+            </ul>
+
+            <h4>Advantage of Time Pairs</h4>
+            <pre><code>Scenario: A overwrites with B's version manually
+
+Version Vector Only:
+A: [A:3, B:1] → [A:3, B:1] (forced overwrite)
+Later, A creates A4: [A:4, B:1]
+B still has [A:1, B:3]
+Sync again: FALSE CONFLICT! (looks like concurrent edits)
+
+Vector Time Pairs:
+A: &lt;A3, B1&gt; / &lt;&lt;A3, B1&gt;&gt; → &lt;A∅, B3&gt; / &lt;&lt;A3, B4&gt;&gt; (remembers B3)
+Later, A creates A4: &lt;A4, B1&gt; / &lt;&lt;A4, B4&gt;&gt;
+B still has &lt;A∅, B3&gt; / &lt;&lt;A∅, B3&gt;&gt;
+Sync: A's sync[B]=4 &gt; B's mod[B]=3 → NO CONFLICT! ✓</code></pre>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Time pairs have memory" - the sync vector remembers past conflicts!
+            </div>
+
+            <h3>Comparison with Git</h3>
+            <p>Git uses a <strong>DAG (Directed Acyclic Graph)</strong> of commits:</p>
+            <ul>
+                <li>Complete history of all changes</li>
+                <li>Can reconstruct any past state</li>
+                <li>Heavy: stores entire history</li>
+            </ul>
+
+            <p>Vector Time Pairs:</p>
+            <ul>
+                <li>Lightweight: just two vectors</li>
+                <li>No history: only current state + what we know</li>
+                <li>Sufficient for file sync (don't need full history)</li>
+            </ul>
+
+            <h4>When to use what</h4>
+            <ul>
+                <li><strong>Git:</strong> Code, need history, explicit commits</li>
+                <li><strong>Vector Time Pairs:</strong> Automatic file sync, no history needed</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Comparison Table</h3>
+
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 12px; background: var(--primary-color); color: white; border: 1px solid var(--border-color); text-align: left;">Feature</th>
+                            <th style="padding: 12px; background: var(--secondary-color); color: white; border: 1px solid var(--border-color); text-align: center;">
+                                <div style="font-size: 24px;">⏱️⏱️</div>
+                                Vector Time Pairs
+                            </th>
+                            <th style="padding: 12px; background: var(--warning-color); color: white; border: 1px solid var(--border-color); text-align: center;">
+                                <div style="font-size: 24px;">🕐</div>
+                                Last-Write-Wins
+                            </th>
+                            <th style="padding: 12px; background: var(--info-color); color: white; border: 1px solid var(--border-color); text-align: center;">
+                                <div style="font-size: 24px;">⏱️</div>
+                                Version Vectors
+                            </th>
+                            <th style="padding: 12px; background: var(--success-color); color: white; border: 1px solid var(--border-color); text-align: center;">
+                                <div style="font-size: 24px;">🌳</div>
+                                Git (DAG)
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">Conflict Detection</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓✓ Excellent<br>
+                                <span style="font-size: 11px;">Detects all concurrent edits</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(231, 76, 60, 0.1);">
+                                ✗ None<br>
+                                <span style="font-size: 11px;">Silently loses data</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Good<br>
+                                <span style="font-size: 11px;">Detects concurrency</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓✓ Excellent<br>
+                                <span style="font-size: 11px;">Full merge support</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">False Positives</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Prevented<br>
+                                <span style="font-size: 11px;">Sync vector remembers</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(243, 156, 18, 0.1);">
+                                N/A<br>
+                                <span style="font-size: 11px;">No conflict detection</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(231, 76, 60, 0.1);">
+                                ✗ Possible<br>
+                                <span style="font-size: 11px;">After manual overwrite</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Prevented<br>
+                                <span style="font-size: 11px;">Full history available</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">Storage Overhead</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">
+                                Medium<br>
+                                <span style="font-size: 11px;">2 vectors per file</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Low<br>
+                                <span style="font-size: 11px;">Just timestamp</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">
+                                Low-Medium<br>
+                                <span style="font-size: 11px;">1 vector per file</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(231, 76, 60, 0.1);">
+                                ✗ High<br>
+                                <span style="font-size: 11px;">Entire history</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">History</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">
+                                None<br>
+                                <span style="font-size: 11px;">Current state only</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">
+                                None<br>
+                                <span style="font-size: 11px;">No history</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center;">
+                                None<br>
+                                <span style="font-size: 11px;">Current state only</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Complete<br>
+                                <span style="font-size: 11px;">Full DAG</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">Best For</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-size: 12px;">
+                                📁 Automatic file sync<br>
+                                (Dropbox, OneDrive)
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-size: 12px;">
+                                💾 Simple caches<br>
+                                (OK to lose updates)
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-size: 12px;">
+                                🗄️ Database replication<br>
+                                (Dynamo, Riak)
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-size: 12px;">
+                                💻 Source control<br>
+                                (GitHub, GitLab)
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); font-weight: bold; background: var(--code-bg);">Data Loss Risk</td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ None<br>
+                                <span style="font-size: 11px;">User resolves conflicts</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(231, 76, 60, 0.1);">
+                                ✗ High<br>
+                                <span style="font-size: 11px;">Silent overwrites</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ Low<br>
+                                <span style="font-size: 11px;">Conflicts detected</span>
+                            </td>
+                            <td style="padding: 10px; border: 1px solid var(--border-color); text-align: center; background: rgba(39, 174, 96, 0.1);">
+                                ✓ None<br>
+                                <span style="font-size: 11px;">Full history preserved</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background: var(--secondary-color); color: white; padding: 15px; border-radius: 5px; margin-top: 20px;">
+                <strong>Key Takeaway:</strong> Vector Time Pairs offer the sweet spot between Git's complexity and Last-Write-Wins' data loss risk, perfect for automatic file synchronization!
+            </div>
+        </div>
+
+        <section id="memory-aids">
+            <h2>Memory Aids & Key Takeaways</h2>
+
+            <h3>The "Two Questions" Mnemonic</h3>
+            <p>When you see vector time pairs, ask:</p>
+            <ol>
+                <li><strong>"What do I have?"</strong> → Modification vector (angled brackets)</li>
+                <li><strong>"What do I know?"</strong> → Sync vector (double angled brackets)</li>
+            </ol>
+
+            <h3>The "Three C's" of Vector Comparison</h3>
+            <ol>
+                <li><strong>Clear</strong> (A = B): Vectors are equal → Same version</li>
+                <li><strong>Causal</strong> (A &lt; B or A &gt; B): One dominates → Sequential, safe to update</li>
+                <li><strong>Concurrent</strong> (A || B): Vectors cross → CONFLICT!</li>
+            </ol>
+
+            <h3>The Conflict Detection Pattern</h3>
+            <p><strong>Cross Pattern = Conflict</strong></p>
+            <pre><code>     A[i]  B[i]
+     ----  ----
+i:    3  &gt;  1    ← A is bigger here
+j:    1  &lt;  4    ← B is bigger here
+           ↓
+       CONFLICT!</code></pre>
+
+            <h3>Essential Rules to Remember</h3>
+            <ol>
+                <li>
+                    <strong>Modification ⊆ Sync:</strong> Modification time is always contained in sync time
+                    <ul>
+                        <li>You always know at least what you knew when you last modified</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Sync Vector Updates:</strong> After sync, take the maximum
+                    <ul>
+                        <li><code>sync_new[i] = max(sync_A[i], sync_B[i])</code></li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Creation Time Immutable:</strong> CT only changes if file is recreated
+                    <ul>
+                        <li>It's the file's permanent identity</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Conflict Resolution:</strong> Three options
+                    <ul>
+                        <li>Merge (create hybrid)</li>
+                        <li>Overwrite (pick one)</li>
+                        <li>Keep both (save separately)</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Common Pitfalls to Avoid</h3>
+            <div class="callout-warning">
+                <p><strong>Pitfall 1:</strong> Confusing modification and sync vectors</p>
+                <ul>
+                    <li><strong>Remember:</strong> Mod = "what I have", Sync = "what I know"</li>
+                </ul>
+
+                <p><strong>Pitfall 2:</strong> Thinking equal timestamps mean no conflict</p>
+                <ul>
+                    <li>Need to compare VECTORS, not just one device's timestamp</li>
+                </ul>
+
+                <p><strong>Pitfall 3:</strong> Forgetting to update sync vectors after resolution</p>
+                <ul>
+                    <li>Always update sync to max after any sync operation!</li>
+                </ul>
+
+                <p><strong>Pitfall 4:</strong> Using wall-clock time instead of logical time</p>
+                <ul>
+                    <li>Wall-clock time can't detect causality or concurrency</li>
+                </ul>
+
+                <p><strong>Pitfall 5:</strong> Ignoring creation times for deletions</p>
+                <ul>
+                    <li>Different CT = different file, even with same name!</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="practice-questions">
+            <h2>Practice Questions</h2>
+
+            <h3>Question 1: Conflict Detection</h3>
+            <pre><code>Device A: &lt;A5, B2, C1&gt; / &lt;&lt;A5, B2, C1&gt;&gt;
+Device B: &lt;A3, B4, C1&gt; / &lt;&lt;A3, B4, C1&gt;&gt;</code></pre>
+            <p><strong>Is there a conflict when A and B sync? Why or why not?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p><strong>YES, there is a conflict!</strong></p>
+                    <p>Compare the modification vectors:</p>
+                    <ul>
+                        <li>A[A]=5, B[A]=3 → A &gt; B at position A</li>
+                        <li>A[B]=2, B[B]=4 → A &lt; B at position B</li>
+                        <li>This is the cross pattern: A || B</li>
+                    </ul>
+                    <p>Neither vector dominates (neither knows everything the other knows), so they were modified concurrently. User intervention required!</p>
+                </div>
+            </details>
+
+            <h3>Question 2: Sequential Update</h3>
+            <pre><code>Device A: &lt;A3, B1, C∅&gt; / &lt;&lt;A3, B1, C∅&gt;&gt;
+Device B: &lt;A3, B5, C∅&gt; / &lt;&lt;A3, B5, C∅&gt;&gt;</code></pre>
+            <p><strong>What happens when they sync?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p><strong>B's version overwrites A's (no conflict)</strong></p>
+                    <p>Compare the modification vectors:</p>
+                    <ul>
+                        <li>A[A]=3, B[A]=3 → Equal</li>
+                        <li>A[B]=1, B[B]=5 → A &lt; B</li>
+                        <li>A[C]=∅, B[C]=∅ → Equal</li>
+                    </ul>
+                    <p>Since A's mod ≤ B's mod for all positions, A &lt; B (causality). B knows everything A knows (and more), so B's version is newer. Safe to copy B → A.</p>
+                    <p><strong>After sync:</strong> Both devices: <code>&lt;A3, B5, C∅&gt; / &lt;&lt;A3, B5, C∅&gt;&gt;</code></p>
+                </div>
+            </details>
+
+            <h3>Question 3: Sync Vector Magic</h3>
+            <pre><code>Device A: &lt;A6, B1, C∅&gt; / &lt;&lt;A6, B7, C∅&gt;&gt;
+Device B: &lt;A∅, B3, C∅&gt; / &lt;&lt;A∅, B3, C5&gt;&gt;</code></pre>
+            <p><strong>Is there a conflict?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-success">
+                    <p><strong>NO conflict!</strong></p>
+                    <p>Compare A's modification vector with B's modification vector:</p>
+                    <ul>
+                        <li>A's mod: <code>&lt;A6, B1, C∅&gt;</code></li>
+                        <li>B's mod: <code>&lt;A∅, B3, C∅&gt;</code></li>
+                        <li>This LOOKS like it would conflict (A6 &gt; A∅, but B1 &lt; B3)</li>
+                    </ul>
+                    <p>BUT check A's sync vector:</p>
+                    <ul>
+                        <li>A's sync: <code>&lt;&lt;A6, B7, C∅&gt;&gt;</code></li>
+                        <li>A knows about B7, which is &gt; B3</li>
+                        <li>So A already knows about B's B3 modification!</li>
+                    </ul>
+                    <p>A's version is genuinely newer. Copy A → B.</p>
+                    <p><strong>This is why sync vectors matter!</strong> They prevent false conflicts when one device has already seen and resolved a previous conflict.</p>
+                </div>
+            </details>
+
+            <h3>Question 4: Deletion Scenario</h3>
+            <pre><code>File on A: &lt;A5, B2, C∅&gt; / CT = A1
+File on B: Deleted, remembers CT = A1</code></pre>
+            <p><strong>What happens when they sync?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p><strong>Deletion wins (file deleted on A)</strong></p>
+                    <p>The creation times match (CT = A1), meaning:</p>
+                    <ul>
+                        <li>They're talking about the same file</li>
+                        <li>B's deletion is for the version A has</li>
+                        <li>The deletion happened after A's modification (sequential)</li>
+                    </ul>
+                    <p>Result: File is deleted on A.</p>
+                    <p><strong>If CT had been different:</strong></p>
+                    <pre><code>File on A: &lt;A5, B2, C∅&gt; / CT = B4  (different!)
+File on B: Deleted, remembers CT = A1</code></pre>
+                    <p>Then it would be a CONFLICT - A created a NEW file (CT = B4) that B doesn't know about.</p>
+                </div>
+            </details>
+
+            <h3>Question 5: Three-Way Merge</h3>
+            <pre><code>A: &lt;A3, B∅, C∅&gt; / &lt;&lt;A3, B∅, C∅&gt;&gt;
+B: &lt;A∅, B2, C∅&gt; / &lt;&lt;A∅, B2, C∅&gt;&gt;
+C: &lt;A∅, B∅, C1&gt; / &lt;&lt;A∅, B∅, C1&gt;&gt;</code></pre>
+            <p><strong>Device C syncs with both A and B. Describe the process.</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p><strong>Step 1: C syncs with A</strong></p>
+                    <ul>
+                        <li>C's mod: <code>&lt;A∅, B∅, C1&gt;</code></li>
+                        <li>A's mod: <code>&lt;A3, B∅, C∅&gt;</code></li>
+                        <li>Compare: C∅ &gt; A∅ at position C, but CA∅ &lt; AA3 at position A</li>
+                        <li>CONFLICT! But since neither has changes, user picks A's version</li>
+                        <li>C after sync: <code>&lt;A3, B∅, C∅&gt; / &lt;&lt;A3, B∅, C1&gt;&gt;</code></li>
+                    </ul>
+
+                    <p><strong>Step 2: C syncs with B</strong></p>
+                    <ul>
+                        <li>C's mod: <code>&lt;A3, B∅, C∅&gt;</code></li>
+                        <li>B's mod: <code>&lt;A∅, B2, C∅&gt;</code></li>
+                        <li>Compare: CA3 &gt; BA∅, but CB∅ &lt; BB2</li>
+                        <li>CONFLICT! User merges</li>
+                        <li>C after merge: <code>&lt;A3, B2, C2&gt; / &lt;&lt;A3, B2, C1&gt;&gt;</code></li>
+                    </ul>
+
+                    <p><strong>Step 3: Update C's sync vector</strong></p>
+                    <ul>
+                        <li>C's sync becomes: <code>&lt;&lt;A3, B2, C2&gt;&gt;</code></li>
+                    </ul>
+
+                    <p><strong>Final State:</strong></p>
+                    <pre><code>C: &lt;A3, B2, C2&gt; / &lt;&lt;A3, B2, C2&gt;&gt;</code></pre>
+                    <p>Now when A or B sync with C, they'll see C's version dominates theirs!</p>
+                </div>
+            </details>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Interactive Practice Problems</h3>
+
+            <div style="text-align: center; margin: 20px 0;">
+                <button id="genProblem" style="background: var(--success-color); color: white; border: none; padding: 12px 30px; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;">🎲 Generate Random Problem</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 30px 0;">
+                <div style="background: rgba(52, 152, 219, 0.05); padding: 20px; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                    <h4 style="margin: 0 0 15px 0; color: var(--secondary-color); text-align: center;">Device A</h4>
+                    <div style="margin: 15px 0;">
+                        <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 5px;">Modification Vector</label>
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                            <input type="number" id="practA0" value="5" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                            <input type="number" id="practA1" value="2" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                            <input type="number" id="practA2" value="1" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div style="text-align: center; margin-top: 10px; font-family: monospace; font-size: 18px; color: var(--primary-color);">
+                            &lt;<span id="practDispA">A5, B2, C1</span>&gt;
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(52, 152, 219, 0.05); padding: 20px; border-radius: 8px; border: 2px solid var(--secondary-color);">
+                    <h4 style="margin: 0 0 15px 0; color: var(--secondary-color); text-align: center;">Device B</h4>
+                    <div style="margin: 15px 0;">
+                        <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 5px;">Modification Vector</label>
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                            <input type="number" id="practB0" value="3" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                            <input type="number" id="practB1" value="4" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                            <input type="number" id="practB2" value="3" min="0" max="9" style="width: 50px; padding: 8px; text-align: center; border: 2px solid var(--border-color); border-radius: 5px; font-size: 16px;">
+                        </div>
+                        <div style="text-align: center; margin-top: 10px; font-family: monospace; font-size: 18px; color: var(--primary-color);">
+                            &lt;<span id="practDispB">A3, B4, C3</span>&gt;
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin: 20px 0;">
+                <button id="checkPract" style="background: var(--secondary-color); color: white; border: none; padding: 15px 50px; border-radius: 5px; font-size: 18px; cursor: pointer; font-weight: bold;">🔍 Check Answer</button>
+            </div>
+
+            <div id="practResult" style="min-height: 120px; padding: 20px; border-radius: 8px; margin: 20px 0; display: none; text-align: center;">
+                <!-- Result will be shown here -->
+            </div>
+
+            <div id="practExplanation" style="background: var(--code-bg); padding: 20px; border-radius: 8px; margin: 20px 0; display: none;">
+                <!-- Explanation will be shown here -->
+            </div>
+
+            <script>
+            (function() {
+                const labels = ['A', 'B', 'C'];
+
+                function updatePractDisplay() {
+                    const a = [parseInt(document.getElementById('practA0').value) || 0,
+                              parseInt(document.getElementById('practA1').value) || 0,
+                              parseInt(document.getElementById('practA2').value) || 0];
+                    const b = [parseInt(document.getElementById('practB0').value) || 0,
+                              parseInt(document.getElementById('practB1').value) || 0,
+                              parseInt(document.getElementById('practB2').value) || 0];
+
+                    document.getElementById('practDispA').textContent =
+                        labels.map((l, i) => l + (a[i] || '∅')).join(', ');
+                    document.getElementById('practDispB').textContent =
+                        labels.map((l, i) => l + (b[i] || '∅')).join(', ');
+                }
+
+                function checkPractice() {
+                    const a = [parseInt(document.getElementById('practA0').value) || 0,
+                              parseInt(document.getElementById('practA1').value) || 0,
+                              parseInt(document.getElementById('practA2').value) || 0];
+                    const b = [parseInt(document.getElementById('practB0').value) || 0,
+                              parseInt(document.getElementById('practB1').value) || 0,
+                              parseInt(document.getElementById('practB2').value) || 0];
+
+                    let hasGreater = false, hasLess = false, allEqual = true;
+                    let comparisons = [];
+
+                    for (let i = 0; i < 3; i++) {
+                        if (a[i] < b[i]) {
+                            hasLess = true;
+                            allEqual = false;
+                            comparisons.push(`${labels[i]}: ${a[i] || '∅'} < ${b[i] || '∅'}`);
+                        } else if (a[i] > b[i]) {
+                            hasGreater = true;
+                            allEqual = false;
+                            comparisons.push(`${labels[i]}: ${a[i] || '∅'} > ${b[i] || '∅'}`);
+                        } else {
+                            comparisons.push(`${labels[i]}: ${a[i] || '∅'} = ${b[i] || '∅'}`);
+                        }
+                    }
+
+                    const resultBox = document.getElementById('practResult');
+                    const explainBox = document.getElementById('practExplanation');
+
+                    resultBox.style.display = 'block';
+                    explainBox.style.display = 'block';
+
+                    if (allEqual) {
+                        resultBox.innerHTML = '<div style="font-size: 48px; margin-bottom: 10px;">✓</div><h3 style="color: var(--success-color); margin: 0;">Vectors are EQUAL</h3><p>Same version - no sync needed</p>';
+                        resultBox.style.background = 'rgba(39, 174, 96, 0.2)';
+                        resultBox.style.border = '3px solid var(--success-color)';
+                        explainBox.innerHTML = '<strong>Explanation:</strong><br>' + comparisons.join('<br>') + '<br><br>All positions are equal, so both devices have exactly the same version.';
+                    } else if (hasGreater && hasLess) {
+                        resultBox.innerHTML = '<div style="font-size: 48px; margin-bottom: 10px;">⚠️</div><h3 style="color: var(--accent-color); margin: 0;">CONFLICT DETECTED!</h3><p>Concurrent edits (A || B)</p>';
+                        resultBox.style.background = 'rgba(231, 76, 60, 0.2)';
+                        resultBox.style.border = '3px solid var(--accent-color)';
+                        explainBox.innerHTML = '<strong>Explanation:</strong><br>' + comparisons.join('<br>') + '<br><br><strong style="color: var(--accent-color);">Cross Pattern Detected!</strong> Some positions have A > B, others have A < B. This means neither device knows everything the other knows - they edited concurrently. Manual resolution required!';
+                    } else if (hasGreater) {
+                        resultBox.innerHTML = '<div style="font-size: 48px; margin-bottom: 10px;">→</div><h3 style="color: var(--secondary-color); margin: 0;">A is Newer (A > B)</h3><p>Sequential update - copy A to B</p>';
+                        resultBox.style.background = 'rgba(52, 152, 219, 0.2)';
+                        resultBox.style.border = '3px solid var(--secondary-color)';
+                        explainBox.innerHTML = '<strong>Explanation:</strong><br>' + comparisons.join('<br>') + '<br><br>A is greater than or equal to B in all positions. This means A knows everything B knows (and more). Safe to update B with A\'s version.';
+                    } else {
+                        resultBox.innerHTML = '<div style="font-size: 48px; margin-bottom: 10px;">←</div><h3 style="color: var(--secondary-color); margin: 0;">B is Newer (A < B)</h3><p>Sequential update - copy B to A</p>';
+                        resultBox.style.background = 'rgba(52, 152, 219, 0.2)';
+                        resultBox.style.border = '3px solid var(--secondary-color)';
+                        explainBox.innerHTML = '<strong>Explanation:</strong><br>' + comparisons.join('<br>') + '<br><br>B is greater than or equal to A in all positions. This means B knows everything A knows (and more). Safe to update A with B\'s version.';
+                    }
+
+                    resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+
+                function generateProblem() {
+                    const type = Math.floor(Math.random() * 3);
+                    let a, b;
+
+                    if (type === 0) { // Equal
+                        const val = [Math.floor(Math.random() * 5) + 1, Math.floor(Math.random() * 5) + 1, Math.floor(Math.random() * 5) + 1];
+                        a = [...val];
+                        b = [...val];
+                    } else if (type === 1) { // Sequential
+                        a = [Math.floor(Math.random() * 3) + 1, Math.floor(Math.random() * 3) + 1, Math.floor(Math.random() * 3) + 1];
+                        b = a.map(v => v + Math.floor(Math.random() * 3));
+                    } else { // Conflict
+                        a = [Math.floor(Math.random() * 5) + 2, Math.floor(Math.random() * 3), Math.floor(Math.random() * 3)];
+                        b = [Math.floor(Math.random() * 2), Math.floor(Math.random() * 5) + 2, Math.floor(Math.random() * 3)];
+                    }
+
+                    document.getElementById('practA0').value = a[0];
+                    document.getElementById('practA1').value = a[1];
+                    document.getElementById('practA2').value = a[2];
+                    document.getElementById('practB0').value = b[0];
+                    document.getElementById('practB1').value = b[1];
+                    document.getElementById('practB2').value = b[2];
+
+                    updatePractDisplay();
+                    document.getElementById('practResult').style.display = 'none';
+                    document.getElementById('practExplanation').style.display = 'none';
+                }
+
+                // Event listeners
+                ['practA0', 'practA1', 'practA2', 'practB0', 'practB1', 'practB2'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', updatePractDisplay);
+                });
+
+                document.getElementById('checkPract').addEventListener('click', checkPractice);
+                document.getElementById('genProblem').addEventListener('click', generateProblem);
+
+                updatePractDisplay();
+            })();
+            </script>
+        </div>
+
+        <section id="quick-reference">
+            <h2>Quick Reference Card</h2>
+
+            <h3>Vector Comparison</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Condition</th>
+                        <th>Meaning</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>A = B</td>
+                        <td>Same version</td>
+                        <td>Do nothing</td>
+                    </tr>
+                    <tr>
+                        <td>A &lt; B</td>
+                        <td>B newer (sequential)</td>
+                        <td>Copy B → A</td>
+                    </tr>
+                    <tr>
+                        <td>A &gt; B</td>
+                        <td>A newer (sequential)</td>
+                        <td>Copy A → B</td>
+                    </tr>
+                    <tr>
+                        <td>A || B</td>
+                        <td>Concurrent edits</td>
+                        <td><strong>CONFLICT</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Notation Guide</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Meaning</th>
+                        <th>Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>&lt;...&gt;</code></td>
+                        <td>Modification vector</td>
+                        <td><code>&lt;A3, B2, C1&gt;</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>&lt;&lt;...&gt;&gt;</code></td>
+                        <td>Sync vector</td>
+                        <td><code>&lt;&lt;A5, B4, C3&gt;&gt;</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>CT</code></td>
+                        <td>Creation time</td>
+                        <td><code>CT = A1</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>∅</code></td>
+                        <td>No changes from this device</td>
+                        <td><code>&lt;A3, B∅, C2&gt;</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Conflict Resolution Flowchart</h3>
+            <pre><code>                 Start Sync
+                     |
+                     v
+          Compare Mod Vectors
+                     |
+         +-----------+-----------+
+         |           |           |
+      A &lt; B       A &gt; B       A || B
+         |           |           |
+    Copy B→A    Copy A→B     CONFLICT!
+         |           |           |
+         v           v           v
+    Update Sync  Update Sync  User Chooses:
+      Vectors     Vectors      - Merge
+         |           |          - Overwrite
+         |           |          - Keep Both
+         v           v           |
+                  Done     Update Vectors
+                                 |
+                                Done</code></pre>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Interactive Flowchart</h3>
+
+            <svg viewBox="0 0 600 700" style="width: 100%; max-width: 600px; margin: 0 auto; display: block; background: var(--code-bg); border-radius: 8px; padding: 20px;">
+                <!-- Start -->
+                <rect x="200" y="20" width="200" height="50" rx="25" fill="var(--secondary-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="50" text-anchor="middle" fill="white" font-weight="bold" font-size="16">Start Sync</text>
+
+                <!-- Arrow down -->
+                <line x1="300" y1="70" x2="300" y2="100" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- Compare Mod Vectors -->
+                <rect x="180" y="100" width="240" height="60" rx="10" fill="var(--info-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="125" text-anchor="middle" fill="white" font-weight="bold" font-size="14">Compare Modification</text>
+                <text x="300" y="145" text-anchor="middle" fill="white" font-weight="bold" font-size="14">Vectors</text>
+
+                <!-- Arrow down to decision -->
+                <line x1="300" y1="160" x2="300" y2="190" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <!-- Decision Diamond -->
+                <path d="M 300,190 L 370,240 L 300,290 L 230,240 Z" fill="#f39c12" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="245" text-anchor="middle" fill="white" font-weight="bold" font-size="13">A vs B?</text>
+
+                <!-- A < B branch (left) -->
+                <line x1="230" y1="240" x2="120" y2="240" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="175" y="235" text-anchor="middle" fill="var(--secondary-color)" font-weight="bold" font-size="12">A &lt; B</text>
+                <rect x="20" y="220" width="100" height="50" rx="8" fill="var(--secondary-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="70" y="238" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Copy B → A</text>
+                <text x="70" y="255" text-anchor="middle" fill="white" font-size="10">(B is newer)</text>
+
+                <!-- A > B branch (right) -->
+                <line x1="370" y1="240" x2="480" y2="240" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="425" y="235" text-anchor="middle" fill="var(--secondary-color)" font-weight="bold" font-size="12">A &gt; B</text>
+                <rect x="480" y="220" width="100" height="50" rx="8" fill="var(--secondary-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="530" y="238" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Copy A → B</text>
+                <text x="530" y="255" text-anchor="middle" fill="white" font-size="10">(A is newer)</text>
+
+                <!-- A = B branch (up-right) -->
+                <line x1="335" y1="210" x2="430" y2="140" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="390" y="165" text-anchor="middle" fill="var(--success-color)" font-weight="bold" font-size="12">A = B</text>
+                <rect x="430" y="115" width="110" height="50" rx="8" fill="var(--success-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="485" y="135" text-anchor="middle" fill="white" font-size="11" font-weight="bold">Do Nothing</text>
+                <text x="485" y="150" text-anchor="middle" fill="white" font-size="10">(Already in sync)</text>
+
+                <!-- A || B branch (down) -->
+                <line x1="300" y1="290" x2="300" y2="340" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="320" y="320" text-anchor="start" fill="var(--accent-color)" font-weight="bold" font-size="12">A || B</text>
+
+                <!-- Conflict box -->
+                <rect x="220" y="340" width="160" height="60" rx="8" fill="var(--accent-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="362" text-anchor="middle" fill="white" font-weight="bold" font-size="13">CONFLICT!</text>
+                <text x="300" y="382" text-anchor="middle" fill="white" font-size="11">User Resolution:</text>
+
+                <!-- Resolution options -->
+                <line x1="300" y1="400" x2="300" y2="430" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <rect x="180" y="430" width="240" height="80" rx="8" fill="rgba(243, 156, 18, 0.2)" stroke="var(--warning-color)" stroke-width="2"/>
+                <text x="300" y="450" text-anchor="middle" fill="var(--primary-color)" font-weight="bold" font-size="12">Choose Resolution:</text>
+                <text x="300" y="470" text-anchor="middle" fill="var(--text-color)" font-size="10">• Merge (create hybrid)</text>
+                <text x="300" y="487" text-anchor="middle" fill="var(--text-color)" font-size="10">• Overwrite (pick one)</text>
+                <text x="300" y="504" text-anchor="middle" fill="var(--text-color)" font-size="10">• Keep Both (save separately)</text>
+
+                <!-- Update vectors -->
+                <line x1="70" y1="270" x2="70" y2="550" stroke="var(--primary-color)" stroke-width="2" stroke-dasharray="5"/>
+                <line x1="530" y1="270" x2="530" y2="550" stroke="var(--primary-color)" stroke-width="2" stroke-dasharray="5"/>
+                <line x1="300" y1="510" x2="300" y2="550" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <line x1="70" y1="550" x2="300" y2="550" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <line x1="530" y1="550" x2="300" y2="550" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+
+                <rect x="180" y="550" width="240" height="50" rx="8" fill="var(--success-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="570" text-anchor="middle" fill="white" font-weight="bold" font-size="13">Update Sync Vectors</text>
+                <text x="300" y="587" text-anchor="middle" fill="white" font-size="10">sync[i] = max(A[i], B[i])</text>
+
+                <!-- Done -->
+                <line x1="300" y1="600" x2="300" y2="630" stroke="var(--primary-color)" stroke-width="2" marker-end="url(#arrow)"/>
+                <ellipse cx="300" cy="655" rx="80" ry="30" fill="var(--success-color)" stroke="var(--primary-color)" stroke-width="2"/>
+                <text x="300" y="662" text-anchor="middle" fill="white" font-weight="bold" font-size="16">Done ✓</text>
+
+                <!-- Arrow marker -->
+                <defs>
+                    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="var(--primary-color)"/>
+                    </marker>
+                </defs>
+
+                <!-- Interactive overlays (invisible clickable areas) -->
+                <rect class="flow-node" data-info="Start synchronization between Device A and Device B" x="200" y="20" width="200" height="50" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="Compare modification vectors element by element. Check if A < B, A > B, A = B, or A || B" x="180" y="100" width="240" height="60" fill="transparent" style="cursor: pointer;"/>
+                <path class="flow-node" data-info="Decision point: Determine relationship between vectors" d="M 300,190 L 370,240 L 300,290 L 230,240 Z" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="A < B means B is newer. Safe to copy B's content to A without conflict." x="20" y="220" width="100" height="50" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="A > B means A is newer. Safe to copy A's content to B without conflict." x="480" y="220" width="100" height="50" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="A = B means both devices have identical versions. No synchronization needed!" x="430" y="115" width="110" height="50" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="A || B means concurrent edits! Neither device knows everything the other knows. Manual resolution required!" x="220" y="340" width="160" height="60" fill="transparent" style="cursor: pointer;"/>
+                <rect class="flow-node" data-info="After any sync operation, update both sync vectors to the maximum of each position" x="180" y="550" width="240" height="50" fill="transparent" style="cursor: pointer;"/>
+            </svg>
+
+            <div id="flowInfo" style="background: var(--secondary-color); color: white; padding: 15px; border-radius: 5px; margin-top: 20px; min-height: 60px; text-align: center; font-size: 14px;">
+                <strong>Click on any box or diamond in the flowchart to see detailed information!</strong>
+            </div>
+
+            <script>
+            (function() {
+                const flowNodes = document.querySelectorAll('.flow-node');
+                const infoBox = document.getElementById('flowInfo');
+
+                flowNodes.forEach(node => {
+                    node.addEventListener('click', () => {
+                        const info = node.getAttribute('data-info');
+                        infoBox.innerHTML = `<strong>ℹ️ Information:</strong><br>${info}`;
+                        infoBox.style.background = 'var(--info-color)';
+                    });
+
+                    node.addEventListener('mouseenter', () => {
+                        node.style.fill = 'rgba(52, 152, 219, 0.2)';
+                    });
+
+                    node.addEventListener('mouseleave', () => {
+                        node.style.fill = 'transparent';
+                    });
+                });
+            })();
+            </script>
+        </div>
+
+        <section id="advanced-topics">
+            <h2>Advanced Topics (Optional)</h2>
+
+            <h3>Directory Synchronization</h3>
+            <p>The paper extends to handle entire directories, not just single files:</p>
+            <ul>
+                <li>Each directory has its own vector time pair</li>
+                <li>Need to handle file moves, renames, directory deletions</li>
+                <li>More complex conflict scenarios (e.g., file vs. directory)</li>
+            </ul>
+
+            <h3>Multi-File Updates</h3>
+            <p>Atomic updates to multiple files:</p>
+            <ul>
+                <li>Group of files modified together should sync together</li>
+                <li>Use transaction-like semantics</li>
+                <li>Requires coordination across file boundaries</li>
+            </ul>
+
+            <h3>Optimization Techniques</h3>
+            <p>Real systems optimize vector time pairs:</p>
+            <ol>
+                <li><strong>Pruning old entries:</strong> Remove devices that haven't synced in months</li>
+                <li><strong>Compression:</strong> Use deltas instead of full vectors</li>
+                <li><strong>Lazy deletion:</strong> Mark as deleted instead of immediate removal</li>
+                <li><strong>Batching:</strong> Sync multiple files in one operation</li>
+            </ol>
+        </section>
+
+        <section id="summary">
+            <h2>Summary: The Big Picture</h2>
+            <p>File synchronization with vector time pairs elegantly solves the distributed file sync problem by:</p>
+
+            <ol>
+                <li><strong>Tracking causality</strong> with modification vectors</li>
+                <li><strong>Remembering knowledge</strong> with sync vectors</li>
+                <li><strong>Detecting concurrency</strong> through vector comparison</li>
+                <li><strong>Handling deletions</strong> with creation times</li>
+            </ol>
+
+            <div class="callout-success">
+                <p><strong>The key insight:</strong> Two vectors give us the power to distinguish:</p>
+                <ul>
+                    <li>"This is newer" (sequential) vs. "These are concurrent" (conflict)</li>
+                    <li>"I've seen this before" vs. "This is genuinely new"</li>
+                </ul>
+                <p>This approach powers modern cloud storage systems and keeps your files in sync across devices without losing your work!</p>
+            </div>
+        </section>
+
+        <section id="exam-tips">
+            <h2>Final Exam Tips</h2>
+            <ol>
+                <li><strong>Practice vector comparison</strong> - Do it in your sleep!</li>
+                <li><strong>Draw out sync scenarios</strong> - Visual representation helps</li>
+                <li><strong>Remember the "cross pattern"</strong> for conflicts</li>
+                <li><strong>Don't forget sync vector updates</strong> after operations</li>
+                <li><strong>Creation time is key</strong> for deletions</li>
+                <li><strong>Understand WHY</strong> sync vectors prevent false conflicts</li>
+            </ol>
+
+            <div class="callout-success">
+                <p><strong>Good luck on your exam! You've got this!</strong></p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

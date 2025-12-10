@@ -1,0 +1,2244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Hashing with Chord | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Distributed Hashing with Chord</h1>
+            <p>CS 416 Study Guide - Topic 08</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <nav class="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#the-big-picture">The Big Picture: Why Chord Matters</a></li>
+                <li><a href="#dhts-explained">Distributed Hash Tables (DHTs) Explained</a></li>
+                <li><a href="#chords-ring-structure">Chord's Ring Structure</a></li>
+                <li><a href="#finger-tables">Finger Tables: The Secret Sauce</a></li>
+                <li><a href="#lookups">Lookups: Finding What You Need</a></li>
+                <li><a href="#dynamic-networks">Dynamic Networks: Joins and Departures</a></li>
+                <li><a href="#scalability-and-fault-tolerance">Scalability and Fault Tolerance</a></li>
+                <li><a href="#exam-tips">Exam Tips and Common Pitfalls</a></li>
+            </ol>
+        </nav>
+
+        <section id="the-big-picture">
+            <h2>The Big Picture: Why Chord Matters</h2>
+
+            <h3>The Problem We're Solving</h3>
+
+            <p>Imagine you're building a distributed file storage system like Dropbox, but without a central server. You have thousands of machines, and millions of files. Two critical questions emerge:</p>
+
+            <ol>
+                <li><strong>Storage</strong>: "On which machine should we store file X?"</li>
+                <li><strong>Retrieval</strong>: "From which machine can we retrieve file X?"</li>
+            </ol>
+
+            <p>The naive solution? Keep a central directory mapping files to machines. But that's:</p>
+            <ul>
+                <li>A single point of failure</li>
+                <li>A bottleneck for performance</li>
+                <li>Not truly distributed!</li>
+            </ul>
+
+            <div class="callout-success">
+                <p><strong>Chord's solution</strong>: Create a distributed lookup service that works like a phone book for files, but the phone book itself is distributed across all machines!</p>
+            </div>
+
+            <h3>Real-World Analogy</h3>
+
+            <p>Think of Chord like organizing a library across multiple buildings in a city:</p>
+            <ul>
+                <li>Each building (machine) has a unique address</li>
+                <li>Each book (file) gets assigned to a building based on its title's hash</li>
+                <li>Instead of one master catalog, each building knows about a few other strategic buildings</li>
+                <li>To find any book, you ask nearby buildings who forward you closer to your destination</li>
+                <li>Even if buildings close or new ones open, the system reorganizes automatically</li>
+            </ul>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Chord Library Analogy</h3>
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <button id="librarySearchBtn" style="background: var(--secondary-color); color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; margin-right: 10px;">Animate Book Search</button>
+                    <span id="libraryStatus" style="color: var(--info-color); font-weight: bold;"></span>
+                </div>
+                <svg id="libraryViz" width="100%" height="500" style="border: 1px solid var(--border-color); border-radius: 5px;"></svg>
+                <script>
+                (function() {
+                    const svg = document.getElementById('libraryViz');
+                    const status = document.getElementById('libraryStatus');
+                    const searchBtn = document.getElementById('librarySearchBtn');
+                    const svgWidth = svg.clientWidth || 800;
+                    const svgHeight = 500;
+                    const centerX = svgWidth / 2;
+                    const centerY = svgHeight / 2;
+                    const radius = 180;
+
+                    const libraries = [
+                        { id: 'M0', angle: 0, books: ['Alice', 'Data'] },
+                        { id: 'M1', angle: Math.PI * 0.4, books: ['Bob', 'Echo'] },
+                        { id: 'M3', angle: Math.PI * 0.7, books: ['Charlie', 'Fox'] },
+                        { id: 'M7', angle: Math.PI * 1.3, books: ['George', 'Hotel'] },
+                        { id: 'M8', angle: Math.PI * 1.6, books: ['India', 'Juliet'] }
+                    ];
+
+                    libraries.forEach(lib => {
+                        lib.x = centerX + radius * Math.cos(lib.angle);
+                        lib.y = centerY + radius * Math.sin(lib.angle);
+                    });
+
+                    // Draw city background
+                    const city = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    city.setAttribute('cx', centerX);
+                    city.setAttribute('cy', centerY);
+                    city.setAttribute('r', radius + 50);
+                    city.setAttribute('fill', '#ecf0f1');
+                    city.setAttribute('opacity', '0.3');
+                    svg.appendChild(city);
+
+                    // Draw finger table connections
+                    const fingerConnections = [
+                        ['M0', 'M1'], ['M0', 'M3'], ['M0', 'M7'], ['M0', 'M8'],
+                        ['M1', 'M3'], ['M1', 'M7'],
+                        ['M3', 'M7'], ['M3', 'M8'],
+                        ['M7', 'M8'], ['M7', 'M0']
+                    ];
+
+                    fingerConnections.forEach(([from, to]) => {
+                        const fromLib = libraries.find(l => l.id === from);
+                        const toLib = libraries.find(l => l.id === to);
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', fromLib.x);
+                        line.setAttribute('y1', fromLib.y);
+                        line.setAttribute('x2', toLib.x);
+                        line.setAttribute('y2', toLib.y);
+                        line.setAttribute('stroke', '#bdc3c7');
+                        line.setAttribute('stroke-width', '1');
+                        line.setAttribute('stroke-dasharray', '5,5');
+                        line.setAttribute('opacity', '0.3');
+                        line.classList.add('finger-connection');
+                        line.dataset.from = from;
+                        svg.appendChild(line);
+                    });
+
+                    // Draw libraries
+                    libraries.forEach(lib => {
+                        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        g.classList.add('library');
+                        g.dataset.id = lib.id;
+
+                        // Building
+                        const building = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        building.setAttribute('x', lib.x - 30);
+                        building.setAttribute('y', lib.y - 30);
+                        building.setAttribute('width', '60');
+                        building.setAttribute('height', '60');
+                        building.setAttribute('fill', '#3498db');
+                        building.setAttribute('stroke', '#2c3e50');
+                        building.setAttribute('stroke-width', '2');
+                        building.setAttribute('rx', '5');
+                        building.style.cursor = 'pointer';
+                        g.appendChild(building);
+
+                        // Label
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('x', lib.x);
+                        label.setAttribute('y', lib.y);
+                        label.setAttribute('text-anchor', 'middle');
+                        label.setAttribute('dominant-baseline', 'middle');
+                        label.setAttribute('fill', 'white');
+                        label.setAttribute('font-weight', 'bold');
+                        label.textContent = lib.id;
+                        g.appendChild(label);
+
+                        // Books indicator
+                        const bookCount = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        bookCount.setAttribute('x', lib.x);
+                        bookCount.setAttribute('y', lib.y + 45);
+                        bookCount.setAttribute('text-anchor', 'middle');
+                        bookCount.setAttribute('fill', '#2c3e50');
+                        bookCount.setAttribute('font-size', '10');
+                        bookCount.textContent = lib.books.length + ' books';
+                        g.appendChild(bookCount);
+
+                        // Hover effect
+                        g.addEventListener('mouseenter', () => {
+                            building.setAttribute('fill', '#e74c3c');
+                            document.querySelectorAll('.finger-connection').forEach(line => {
+                                if (line.dataset.from === lib.id) {
+                                    line.setAttribute('stroke', '#e74c3c');
+                                    line.setAttribute('stroke-width', '2');
+                                    line.setAttribute('opacity', '1');
+                                }
+                            });
+                            status.textContent = lib.id + ' knows about: ' +
+                                fingerConnections.filter(([f]) => f === lib.id).map(([, t]) => t).join(', ');
+                        });
+
+                        g.addEventListener('mouseleave', () => {
+                            building.setAttribute('fill', '#3498db');
+                            document.querySelectorAll('.finger-connection').forEach(line => {
+                                line.setAttribute('stroke', '#bdc3c7');
+                                line.setAttribute('stroke-width', '1');
+                                line.setAttribute('opacity', '0.3');
+                            });
+                            status.textContent = '';
+                        });
+
+                        svg.appendChild(g);
+                    });
+
+                    // Animated search
+                    let searchPacket = null;
+                    searchBtn.addEventListener('click', () => {
+                        const path = ['M0', 'M3', 'M7']; // M0 searching for book at M7
+                        let step = 0;
+
+                        if (searchPacket) searchPacket.remove();
+                        searchPacket = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        searchPacket.setAttribute('r', '8');
+                        searchPacket.setAttribute('fill', '#27ae60');
+                        searchPacket.setAttribute('stroke', '#fff');
+                        searchPacket.setAttribute('stroke-width', '2');
+                        svg.appendChild(searchPacket);
+
+                        function animateStep() {
+                            if (step >= path.length) {
+                                status.textContent = '✓ Book found at ' + path[path.length - 1] + '!';
+                                searchPacket.setAttribute('fill', '#f39c12');
+                                return;
+                            }
+
+                            const current = libraries.find(l => l.id === path[step]);
+                            searchPacket.setAttribute('cx', current.x);
+                            searchPacket.setAttribute('cy', current.y);
+                            status.textContent = 'Searching at ' + path[step] + '...';
+
+                            if (step < path.length - 1) {
+                                const next = libraries.find(l => l.id === path[step + 1]);
+                                setTimeout(() => {
+                                    const dx = next.x - current.x;
+                                    const dy = next.y - current.y;
+                                    const duration = 1000;
+                                    const startTime = Date.now();
+
+                                    function move() {
+                                        const elapsed = Date.now() - startTime;
+                                        const progress = Math.min(elapsed / duration, 1);
+                                        searchPacket.setAttribute('cx', current.x + dx * progress);
+                                        searchPacket.setAttribute('cy', current.y + dy * progress);
+
+                                        if (progress < 1) {
+                                            requestAnimationFrame(move);
+                                        } else {
+                                            step++;
+                                            animateStep();
+                                        }
+                                    }
+                                    move();
+                                }, 500);
+                            } else {
+                                setTimeout(() => {
+                                    step++;
+                                    animateStep();
+                                }, 500);
+                            }
+                        }
+
+                        animateStep();
+                    });
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="dhts-explained">
+            <h2>DHTs Explained: The Foundation</h2>
+
+            <h3>What is a Distributed Hash Table?</h3>
+
+            <p>A <strong>Distributed Hash Table (DHT)</strong> is like a regular hash table, but spread across multiple machines:</p>
+
+            <pre><code>Regular Hash Table:
+  hash("apple") → bucket 5 → value stored locally
+
+Distributed Hash Table:
+  hash("apple") → ID 1337 → machine M42 → value stored on M42</code></pre>
+
+            <h3>Key Properties</h3>
+
+            <div class="callout-info">
+                <p><strong>Memory Aid: "SAFA"</strong></p>
+                <ul>
+                    <li><strong>S</strong>calable: Works with millions of nodes</li>
+                    <li><strong>A</strong>utonomous: No central authority</li>
+                    <li><strong>F</strong>ault-tolerant: Survives node failures</li>
+                    <li><strong>A</strong>daptive: Handles nodes joining/leaving</li>
+                </ul>
+            </div>
+
+            <h3>Why Hash to the Same ID Space?</h3>
+
+            <p>Chord uses a brilliant trick: hash BOTH files and machines to the same ID space!</p>
+
+            <pre><code>ID Space: [0, 2^m - 1]
+
+Files:              Machines:
+SHA-1("raft.gz")    SHA-1(IP: "24.83.251.197")
+    ↓                           ↓
+   35                         127
+
+Both live in the same space [0, 2^m - 1]!</code></pre>
+
+            <div class="callout-success">
+                <p><strong>Why this matters</strong>: You can now use math to decide "which machine is responsible for which file"</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: DHT ID Space Mapping</h3>
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <label style="margin-right: 10px; font-weight: bold;">ID Space Size (m): </label>
+                    <input type="range" id="mSlider" min="3" max="5" value="4" style="width: 200px; vertical-align: middle;">
+                    <span id="mValue" style="margin-left: 10px; font-weight: bold; color: var(--secondary-color);">m=4 (0-15)</span>
+                    <button id="hashBtn" style="background: var(--success-color); color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; margin-left: 20px;">Animate Hashing</button>
+                </div>
+                <div id="dhtViz" style="display: flex; gap: 20px; align-items: flex-start;">
+                    <div style="flex: 1;">
+                        <h4 style="color: var(--secondary-color); text-align: center;">Files</h4>
+                        <div id="filesList"></div>
+                    </div>
+                    <div style="flex: 1;">
+                        <h4 style="color: var(--warning-color); text-align: center;">Machines</h4>
+                        <div id="machinesList"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; position: relative;">
+                    <svg id="idSpaceLine" width="100%" height="120"></svg>
+                </div>
+                <script>
+                (function() {
+                    const mSlider = document.getElementById('mSlider');
+                    const mValue = document.getElementById('mValue');
+                    const hashBtn = document.getElementById('hashBtn');
+                    const filesList = document.getElementById('filesList');
+                    const machinesList = document.getElementById('machinesList');
+                    const svg = document.getElementById('idSpaceLine');
+
+                    const files = [
+                        { name: 'raft.gz', baseHash: 35 },
+                        { name: 'paper.pdf', baseHash: 127 },
+                        { name: 'data.json', baseHash: 89 }
+                    ];
+
+                    const machines = [
+                        { name: '24.83.251.197', baseHash: 127 },
+                        { name: '192.168.1.10', baseHash: 42 },
+                        { name: '10.0.0.5', baseHash: 215 }
+                    ];
+
+                    function simpleHash(base, m) {
+                        return base % Math.pow(2, m);
+                    }
+
+                    function update() {
+                        const m = parseInt(mSlider.value);
+                        const maxId = Math.pow(2, m) - 1;
+                        mValue.textContent = `m=${m} (0-${maxId})`;
+
+                        // Update files
+                        filesList.innerHTML = '';
+                        files.forEach(file => {
+                            const hash = simpleHash(file.baseHash, m);
+                            const div = document.createElement('div');
+                            div.style.cssText = 'padding: 8px; margin: 5px 0; background: rgba(52, 152, 219, 0.1); border-left: 3px solid #3498db; border-radius: 3px;';
+                            div.innerHTML = `<strong>${file.name}</strong><br><span style="font-size: 0.9em; color: #7f8c8d;">SHA-1 → ${hash}</span>`;
+                            div.dataset.hash = hash;
+                            div.dataset.type = 'file';
+                            filesList.appendChild(div);
+                        });
+
+                        // Update machines
+                        machinesList.innerHTML = '';
+                        machines.forEach(machine => {
+                            const hash = simpleHash(machine.baseHash, m);
+                            const div = document.createElement('div');
+                            div.style.cssText = 'padding: 8px; margin: 5px 0; background: rgba(243, 156, 18, 0.1); border-left: 3px solid #f39c12; border-radius: 3px;';
+                            div.innerHTML = `<strong>${machine.name}</strong><br><span style="font-size: 0.9em; color: #7f8c8d;">SHA-1 → ${hash}</span>`;
+                            div.dataset.hash = hash;
+                            div.dataset.type = 'machine';
+                            machinesList.appendChild(div);
+                        });
+
+                        drawNumberLine(m);
+                    }
+
+                    function drawNumberLine(m) {
+                        const maxId = Math.pow(2, m);
+                        svg.innerHTML = '';
+                        const width = svg.clientWidth || 600;
+                        const padding = 40;
+                        const lineY = 60;
+
+                        // Draw line
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', padding);
+                        line.setAttribute('y1', lineY);
+                        line.setAttribute('x2', width - padding);
+                        line.setAttribute('y2', lineY);
+                        line.setAttribute('stroke', '#2c3e50');
+                        line.setAttribute('stroke-width', '2');
+                        svg.appendChild(line);
+
+                        // Draw ticks
+                        for (let i = 0; i <= maxId; i++) {
+                            const x = padding + (i / maxId) * (width - 2 * padding);
+                            const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            tick.setAttribute('x1', x);
+                            tick.setAttribute('y1', lineY - 5);
+                            tick.setAttribute('x2', x);
+                            tick.setAttribute('y2', lineY + 5);
+                            tick.setAttribute('stroke', '#2c3e50');
+                            tick.setAttribute('stroke-width', '1');
+                            svg.appendChild(tick);
+
+                            if (i % Math.max(1, Math.floor(maxId / 8)) === 0 || i === maxId) {
+                                const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                                label.setAttribute('x', x);
+                                label.setAttribute('y', lineY + 20);
+                                label.setAttribute('text-anchor', 'middle');
+                                label.setAttribute('font-size', '12');
+                                label.textContent = i;
+                                svg.appendChild(label);
+                            }
+                        }
+
+                        // Plot items
+                        [...files, ...machines].forEach(item => {
+                            const hash = simpleHash(item.baseHash, m);
+                            const x = padding + (hash / maxId) * (width - 2 * padding);
+                            const isFile = files.includes(item);
+
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', x);
+                            circle.setAttribute('cy', lineY);
+                            circle.setAttribute('r', '6');
+                            circle.setAttribute('fill', isFile ? '#3498db' : '#f39c12');
+                            circle.setAttribute('stroke', '#fff');
+                            circle.setAttribute('stroke-width', '2');
+                            circle.classList.add('id-marker');
+                            svg.appendChild(circle);
+
+                            const nameLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            nameLabel.setAttribute('x', x);
+                            nameLabel.setAttribute('y', isFile ? lineY - 15 : lineY + 30);
+                            nameLabel.setAttribute('text-anchor', 'middle');
+                            nameLabel.setAttribute('font-size', '10');
+                            nameLabel.setAttribute('fill', isFile ? '#3498db' : '#f39c12');
+                            nameLabel.textContent = item.name.split('.')[0].substring(0, 8);
+                            svg.appendChild(nameLabel);
+                        });
+                    }
+
+                    let isAnimating = false;
+                    hashBtn.addEventListener('click', () => {
+                        if (isAnimating) return;
+                        isAnimating = true;
+
+                        const markers = svg.querySelectorAll('.id-marker');
+                        markers.forEach(m => m.remove());
+
+                        const allItems = [...filesList.children, ...machinesList.children];
+                        let index = 0;
+
+                        function animateNext() {
+                            if (index >= allItems.length) {
+                                isAnimating = false;
+                                return;
+                            }
+
+                            const item = allItems[index];
+                            item.style.background = item.dataset.type === 'file' ?
+                                'rgba(52, 152, 219, 0.3)' : 'rgba(243, 156, 18, 0.3)';
+                            item.style.transform = 'scale(1.05)';
+                            item.style.transition = 'all 0.3s';
+
+                            setTimeout(() => {
+                                item.style.background = item.dataset.type === 'file' ?
+                                    'rgba(52, 152, 219, 0.1)' : 'rgba(243, 156, 18, 0.1)';
+                                item.style.transform = 'scale(1)';
+
+                                const m = parseInt(mSlider.value);
+                                const maxId = Math.pow(2, m);
+                                const hash = parseInt(item.dataset.hash);
+                                const width = svg.clientWidth || 600;
+                                const padding = 40;
+                                const lineY = 60;
+                                const x = padding + (hash / maxId) * (width - 2 * padding);
+
+                                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                                circle.setAttribute('cx', x);
+                                circle.setAttribute('cy', lineY);
+                                circle.setAttribute('r', '0');
+                                circle.setAttribute('fill', item.dataset.type === 'file' ? '#3498db' : '#f39c12');
+                                circle.setAttribute('stroke', '#fff');
+                                circle.setAttribute('stroke-width', '2');
+                                circle.classList.add('id-marker');
+                                svg.appendChild(circle);
+
+                                let r = 0;
+                                const grow = setInterval(() => {
+                                    r += 0.5;
+                                    circle.setAttribute('r', r);
+                                    if (r >= 6) {
+                                        clearInterval(grow);
+                                        index++;
+                                        setTimeout(animateNext, 300);
+                                    }
+                                }, 20);
+                            }, 500);
+                        }
+
+                        animateNext();
+                    });
+
+                    mSlider.addEventListener('input', update);
+                    update();
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="chords-ring-structure">
+            <h2>Chord's Ring Structure: The Foundation</h2>
+
+            <h3>The Circular ID Space</h3>
+
+            <p>Think of Chord's ID space as a clock face, but with 2^m hours instead of 12:</p>
+
+            <pre><code>       0/15
+    14     1
+  13         2
+
+ 12           3
+
+  11         4
+    10     5
+       6/7
+     (for m=4, IDs 0-15)</code></pre>
+
+            <h3>The Successor Relationship</h3>
+
+            <div class="callout-info">
+                <p><strong>Key Concept</strong>: Every ID has a "successor" - the next machine clockwise on the ring.</p>
+                <pre><code>successor(ID i) = first machine with ID ≥ i (going clockwise)</code></pre>
+            </div>
+
+            <p><strong>Example</strong> (from lecture):</p>
+            <pre><code>Machines: M0, M1, M3, M7, M8 on a ring with m=4
+
+        0/15
+    14      1
+  13          2
+ 12      M0•M1  3
+              •M3
+ 11              4
+   M8•           5
+ 10   •M7        6
+    9   8   7
+
+successor(5) = M7  (first machine ≥ 5 going clockwise)
+successor(9) = M0  (wraps around!)
+successor(1) = M1  (exact match)</code></pre>
+
+            <h3>File Storage Rule</h3>
+
+            <div class="callout-success">
+                <p><strong>The Golden Rule</strong>: Store file at its successor!</p>
+                <pre><code>If SHA-1("myfile.txt") = 5, store it on successor(5) = M7</code></pre>
+                <p><strong>Why?</strong> This distributes files evenly across machines and makes lookup deterministic.</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Chord Ring with Successors</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 2;">
+                        <svg id="chordRing" width="100%" height="500"></svg>
+                    </div>
+                    <div style="flex: 1; padding: 20px; background: rgba(52, 152, 219, 0.05); border-radius: 5px;">
+                        <h4 style="color: var(--primary-color); margin-top: 0;">Successor Calculator</h4>
+                        <div style="margin: 15px 0;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: bold;">Enter ID (0-15):</label>
+                            <input type="number" id="successorInput" min="0" max="15" value="5" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px;">
+                            <button id="findSuccessorBtn" style="width: 100%; margin-top: 10px; background: var(--success-color); color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer;">Find Successor</button>
+                        </div>
+                        <div id="successorResult" style="margin-top: 20px; padding: 15px; background: white; border-radius: 5px; min-height: 100px;"></div>
+                        <div style="margin-top: 20px;">
+                            <h4 style="color: var(--primary-color);">Files on Ring:</h4>
+                            <div id="filesInfo" style="font-size: 0.9em;"></div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('chordRing');
+                    const input = document.getElementById('successorInput');
+                    const findBtn = document.getElementById('findSuccessorBtn');
+                    const result = document.getElementById('successorResult');
+                    const filesInfo = document.getElementById('filesInfo');
+
+                    const svgWidth = svg.clientWidth || 600;
+                    const svgHeight = 500;
+                    const centerX = svgWidth / 2;
+                    const centerY = svgHeight / 2;
+                    const radius = 180;
+                    const m = 4;
+                    const maxId = 16;
+
+                    const nodes = [0, 1, 3, 7, 8];
+                    const files = [
+                        { id: 5, name: 'data.json' },
+                        { id: 9, name: 'file.txt' },
+                        { id: 14, name: 'image.png' }
+                    ];
+
+                    function getAngle(id) {
+                        return -Math.PI / 2 + (id / maxId) * 2 * Math.PI;
+                    }
+
+                    function getPosition(id) {
+                        const angle = getAngle(id);
+                        return {
+                            x: centerX + radius * Math.cos(angle),
+                            y: centerY + radius * Math.sin(angle)
+                        };
+                    }
+
+                    function successor(id) {
+                        for (let node of nodes) {
+                            if (node >= id) return node;
+                        }
+                        return nodes[0]; // wrap around
+                    }
+
+                    function drawRing() {
+                        svg.innerHTML = '';
+
+                        // Draw ring circle
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', centerX);
+                        circle.setAttribute('cy', centerY);
+                        circle.setAttribute('r', radius);
+                        circle.setAttribute('fill', 'none');
+                        circle.setAttribute('stroke', '#bdc3c7');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        // Draw positions
+                        for (let i = 0; i < maxId; i++) {
+                            const pos = getPosition(i);
+                            const isNode = nodes.includes(i);
+
+                            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            dot.setAttribute('cx', pos.x);
+                            dot.setAttribute('cy', pos.y);
+                            dot.setAttribute('r', isNode ? '12' : '3');
+                            dot.setAttribute('fill', isNode ? '#3498db' : '#ecf0f1');
+                            dot.setAttribute('stroke', isNode ? '#2c3e50' : '#bdc3c7');
+                            dot.setAttribute('stroke-width', isNode ? '2' : '1');
+                            dot.dataset.id = i;
+                            dot.style.cursor = 'pointer';
+                            svg.appendChild(dot);
+
+                            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            const labelRadius = radius + (isNode ? 30 : 20);
+                            const angle = getAngle(i);
+                            label.setAttribute('x', centerX + labelRadius * Math.cos(angle));
+                            label.setAttribute('y', centerY + labelRadius * Math.sin(angle));
+                            label.setAttribute('text-anchor', 'middle');
+                            label.setAttribute('dominant-baseline', 'middle');
+                            label.setAttribute('font-size', isNode ? '14' : '10');
+                            label.setAttribute('font-weight', isNode ? 'bold' : 'normal');
+                            label.setAttribute('fill', isNode ? '#2c3e50' : '#7f8c8d');
+                            label.textContent = isNode ? 'M' + i : i;
+                            svg.appendChild(label);
+
+                            // Click handler
+                            dot.addEventListener('click', () => {
+                                input.value = i;
+                                findSuccessor();
+                            });
+                        }
+
+                        // Draw files
+                        files.forEach(file => {
+                            const pos = getPosition(file.id);
+                            const succ = successor(file.id);
+                            const succPos = getPosition(succ);
+
+                            const fileIcon = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            fileIcon.setAttribute('x', pos.x - 8);
+                            fileIcon.setAttribute('y', pos.y - 25);
+                            fileIcon.setAttribute('width', '16');
+                            fileIcon.setAttribute('height', '16');
+                            fileIcon.setAttribute('fill', '#27ae60');
+                            fileIcon.setAttribute('stroke', '#fff');
+                            fileIcon.setAttribute('stroke-width', '2');
+                            fileIcon.setAttribute('rx', '2');
+                            svg.appendChild(fileIcon);
+
+                            const fileName = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            fileName.setAttribute('x', pos.x);
+                            fileName.setAttribute('y', pos.y - 35);
+                            fileName.setAttribute('text-anchor', 'middle');
+                            fileName.setAttribute('font-size', '9');
+                            fileName.setAttribute('fill', '#27ae60');
+                            fileName.textContent = file.name;
+                            svg.appendChild(fileName);
+                        });
+
+                        updateFilesInfo();
+                    }
+
+                    function findSuccessor() {
+                        const id = parseInt(input.value);
+                        if (isNaN(id) || id < 0 || id > 15) {
+                            result.innerHTML = '<span style="color: var(--accent-color);">Please enter a valid ID (0-15)</span>';
+                            return;
+                        }
+
+                        const succ = successor(id);
+                        const pos = getPosition(id);
+                        const succPos = getPosition(succ);
+
+                        // Clear previous arrows
+                        svg.querySelectorAll('.successor-arrow').forEach(el => el.remove());
+
+                        // Draw arrow
+                        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        arrow.classList.add('successor-arrow');
+
+                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        const midAngle = (getAngle(id) + getAngle(succ)) / 2;
+                        const controlRadius = radius * 0.7;
+                        const controlX = centerX + controlRadius * Math.cos(midAngle);
+                        const controlY = centerY + controlRadius * Math.sin(midAngle);
+
+                        path.setAttribute('d', `M ${pos.x} ${pos.y} Q ${controlX} ${controlY} ${succPos.x} ${succPos.y}`);
+                        path.setAttribute('stroke', '#e74c3c');
+                        path.setAttribute('stroke-width', '3');
+                        path.setAttribute('fill', 'none');
+                        path.setAttribute('marker-end', 'url(#arrowhead)');
+                        arrow.appendChild(path);
+
+                        // Add arrowhead marker
+                        let defs = svg.querySelector('defs');
+                        if (!defs) {
+                            defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                            svg.insertBefore(defs, svg.firstChild);
+                        }
+                        defs.innerHTML = '<marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#e74c3c" /></marker>';
+
+                        svg.appendChild(arrow);
+
+                        result.innerHTML = `
+                            <div style="color: var(--success-color); font-weight: bold; margin-bottom: 10px;">✓ Found!</div>
+                            <div style="line-height: 1.8;">
+                                <strong>ID:</strong> ${id}<br>
+                                <strong>Successor:</strong> M${succ}<br>
+                                <strong>Interval:</strong> (${nodes[(nodes.indexOf(succ) - 1 + nodes.length) % nodes.length]}, ${succ}]
+                            </div>
+                        `;
+                    }
+
+                    function updateFilesInfo() {
+                        filesInfo.innerHTML = files.map(file => {
+                            const succ = successor(file.id);
+                            return `<div style="padding: 5px 0; border-bottom: 1px solid #ecf0f1;">
+                                <strong>${file.name}</strong> (ID ${file.id})<br>
+                                <span style="color: #7f8c8d; font-size: 0.85em;">Stored at M${succ}</span>
+                            </div>`;
+                        }).join('');
+                    }
+
+                    findBtn.addEventListener('click', findSuccessor);
+                    input.addEventListener('keypress', e => {
+                        if (e.key === 'Enter') findSuccessor();
+                    });
+
+                    drawRing();
+                    findSuccessor();
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="finger-tables">
+            <h2>Finger Tables: The Secret Sauce</h2>
+
+            <h3>The Problem with Naive Lookup</h3>
+
+            <p>If each machine only knows its immediate neighbor:</p>
+
+            <pre><code>M0 → M1 → M3 → M7 → M8 → M0 (circular)</code></pre>
+
+            <div class="callout-warning">
+                <p><strong>Lookup time</strong>: O(N) - you might have to traverse the entire ring!</p>
+                <pre><code>Example: M0 looking for ID 14
+M0 → M1 → M3 → M7 → M8 → found!
+(4 hops for 5 machines = terrible!)</code></pre>
+            </div>
+
+            <h3>Enter Finger Tables</h3>
+
+            <div class="callout-success">
+                <p><strong>Big Idea</strong>: Each machine keeps track of m "fingers" - shortcuts to machines at exponentially increasing distances!</p>
+                <p><strong>Finger Table Formula</strong> (for machine with ID x):</p>
+                <pre><code>Entry i points to: successor(x + 2^(i-1))
+
+Translation: "Jump forward by powers of 2"</code></pre>
+            </div>
+
+            <h3>Building a Finger Table (Example)</h3>
+
+            <p>Machine M0, with m=4:</p>
+
+            <pre><code>Index | Jump Distance | Start Position | Points To
+------|---------------|----------------|----------
+  1   |   2^0 = 1     |   0 + 1 = 1    |  M1
+  2   |   2^1 = 2     |   0 + 2 = 2    |  M3
+  3   |   2^2 = 4     |   0 + 4 = 4    |  M7
+  4   |   2^3 = 8     |   0 + 8 = 8    |  M8</code></pre>
+
+            <p><strong>Visual Representation</strong>:</p>
+            <pre><code>        0(M0)
+    14      1(M1)
+  13          2
+ 12            3(M3)
+
+ 11              4
+                 5
+ 10               6
+    9    8(M8) 7(M7)
+
+M0's fingers reach out to:
+- M1 (1 hop forward)
+- M3 (2 hops forward)
+- M7 (4 hops forward)
+- M8 (8 hops forward)</code></pre>
+
+            <h3>Why Powers of 2?</h3>
+
+            <div class="callout-info">
+                <p><strong>Memory Aid</strong>: "Binary search on a ring!"</p>
+                <p>Just like binary search divides a sorted array in half each time, finger tables divide the ring:</p>
+                <ul>
+                    <li>Finger 1: covers next 1 position</li>
+                    <li>Finger 2: covers next 2 positions</li>
+                    <li>Finger 3: covers next 4 positions</li>
+                    <li>Finger 4: covers next 8 positions</li>
+                </ul>
+                <p><strong>Result</strong>: You can reach any point in O(log N) hops!</p>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Finger Table Construction</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 1;">
+                        <svg id="fingerRing" width="100%" height="400"></svg>
+                        <div style="text-align: center; margin-top: 10px;">
+                            <p style="font-size: 0.9em; color: #7f8c8d;">Click a node to see its finger table</p>
+                        </div>
+                    </div>
+                    <div style="flex: 1;">
+                        <div id="fingerTableContainer" style="background: rgba(52, 152, 219, 0.05); padding: 15px; border-radius: 5px;"></div>
+                        <button id="stepThroughBtn" style="width: 100%; margin-top: 15px; background: var(--success-color); color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; display: none;">Step Through Construction</button>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('fingerRing');
+                    const tableContainer = document.getElementById('fingerTableContainer');
+                    const stepBtn = document.getElementById('stepThroughBtn');
+                    const svgWidth = svg.clientWidth || 400;
+                    const svgHeight = 400;
+                    const centerX = svgWidth / 2;
+                    const centerY = svgHeight / 2;
+                    const radius = 150;
+                    const nodes = [0, 1, 3, 7, 8];
+                    const m = 4;
+                    const colors = ['#e74c3c', '#f39c12', '#27ae60', '#3498db'];
+
+                    function getAngle(id) {
+                        return -Math.PI / 2 + (id / 16) * 2 * Math.PI;
+                    }
+
+                    function getPosition(id) {
+                        const angle = getAngle(id);
+                        return {
+                            x: centerX + radius * Math.cos(angle),
+                            y: centerY + radius * Math.sin(angle)
+                        };
+                    }
+
+                    function successor(id) {
+                        for (let node of nodes) {
+                            if (node >= id) return node;
+                        }
+                        return nodes[0];
+                    }
+
+                    function buildFingerTable(nodeId) {
+                        const table = [];
+                        for (let i = 1; i <= m; i++) {
+                            const start = (nodeId + Math.pow(2, i - 1)) % 16;
+                            table.push({
+                                index: i,
+                                formula: `${nodeId} + 2^${i-1}`,
+                                start: start,
+                                successor: successor(start)
+                            });
+                        }
+                        return table;
+                    }
+
+                    function drawRing(selectedNode = null) {
+                        svg.innerHTML = '';
+
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', centerX);
+                        circle.setAttribute('cy', centerY);
+                        circle.setAttribute('r', radius);
+                        circle.setAttribute('fill', 'none');
+                        circle.setAttribute('stroke', '#bdc3c7');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        nodes.forEach(nodeId => {
+                            const pos = getPosition(nodeId);
+                            const isSelected = nodeId === selectedNode;
+
+                            const node = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            node.setAttribute('cx', pos.x);
+                            node.setAttribute('cy', pos.y);
+                            node.setAttribute('r', isSelected ? '16' : '12');
+                            node.setAttribute('fill', isSelected ? '#e74c3c' : '#3498db');
+                            node.setAttribute('stroke', '#2c3e50');
+                            node.setAttribute('stroke-width', '2');
+                            node.style.cursor = 'pointer';
+                            svg.appendChild(node);
+
+                            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            label.setAttribute('x', pos.x);
+                            label.setAttribute('y', pos.y);
+                            label.setAttribute('text-anchor', 'middle');
+                            label.setAttribute('dominant-baseline', 'middle');
+                            label.setAttribute('fill', 'white');
+                            label.setAttribute('font-weight', 'bold');
+                            label.textContent = 'M' + nodeId;
+                            svg.appendChild(label);
+
+                            node.addEventListener('click', () => selectNode(nodeId));
+                        });
+
+                        if (selectedNode !== null) {
+                            drawFingers(selectedNode);
+                        }
+                    }
+
+                    function drawFingers(nodeId, upToIndex = m) {
+                        const table = buildFingerTable(nodeId);
+                        const pos = getPosition(nodeId);
+
+                        table.slice(0, upToIndex).forEach((entry, idx) => {
+                            const targetPos = getPosition(entry.successor);
+                            const color = colors[idx % colors.length];
+
+                            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            const midAngle = (getAngle(nodeId) + getAngle(entry.successor)) / 2;
+                            const controlRadius = radius * 0.6;
+                            const cx = centerX + controlRadius * Math.cos(midAngle);
+                            const cy = centerY + controlRadius * Math.sin(midAngle);
+
+                            path.setAttribute('d', `M ${pos.x} ${pos.y} Q ${cx} ${cy} ${targetPos.x} ${targetPos.y}`);
+                            path.setAttribute('stroke', color);
+                            path.setAttribute('stroke-width', '2');
+                            path.setAttribute('fill', 'none');
+                            path.setAttribute('opacity', '0.6');
+                            svg.insertBefore(path, svg.firstChild.nextSibling);
+                        });
+                    }
+
+                    function selectNode(nodeId) {
+                        const table = buildFingerTable(nodeId);
+                        drawRing(nodeId);
+
+                        tableContainer.innerHTML = `
+                            <h4 style="color: var(--primary-color); margin-top: 0;">Finger Table for M${nodeId}</h4>
+                            <table style="width: 100%; font-size: 0.85em; background: white; border-radius: 5px; overflow: hidden;">
+                                <thead>
+                                    <tr style="background: var(--primary-color); color: white;">
+                                        <th style="padding: 8px; text-align: center;">i</th>
+                                        <th style="padding: 8px;">Formula</th>
+                                        <th style="padding: 8px; text-align: center;">Start</th>
+                                        <th style="padding: 8px; text-align: center;">Points To</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${table.map((entry, idx) => `
+                                        <tr style="border-bottom: 1px solid #ecf0f1;">
+                                            <td style="padding: 8px; text-align: center; background: ${colors[idx % colors.length]}22;">
+                                                <strong>${entry.index}</strong>
+                                            </td>
+                                            <td style="padding: 8px; font-family: monospace; font-size: 0.9em;">${entry.formula}</td>
+                                            <td style="padding: 8px; text-align: center;">${entry.start}</td>
+                                            <td style="padding: 8px; text-align: center; font-weight: bold; color: ${colors[idx % colors.length]};">M${entry.successor}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        `;
+                        stepBtn.style.display = 'block';
+                        stepBtn.onclick = () => animateConstruction(nodeId);
+                    }
+
+                    function animateConstruction(nodeId) {
+                        let step = 0;
+                        stepBtn.disabled = true;
+                        stepBtn.textContent = 'Building...';
+
+                        function nextStep() {
+                            if (step >= m) {
+                                stepBtn.disabled = false;
+                                stepBtn.textContent = 'Step Through Construction';
+                                return;
+                            }
+                            step++;
+                            drawRing(nodeId);
+                            drawFingers(nodeId, step);
+
+                            const table = buildFingerTable(nodeId);
+                            const rows = tableContainer.querySelectorAll('tbody tr');
+                            rows[step - 1].style.background = 'rgba(46, 204, 113, 0.2)';
+
+                            setTimeout(nextStep, 800);
+                        }
+                        nextStep();
+                    }
+
+                    drawRing();
+                    tableContainer.innerHTML = '<p style="text-align: center; padding: 40px; color: #7f8c8d;">Select a node to view its finger table</p>';
+                })();
+                </script>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: O(N) vs O(log N) Lookup Comparison</h3>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <button id="comparisonStartBtn" style="background: var(--success-color); color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-size: 1.1em;">Start Comparison</button>
+                    <p style="margin-top: 10px; color: #7f8c8d;">Query: M0 looking for ID 14</p>
+                </div>
+                <div style="display: flex; gap: 20px; margin-bottom: 30px;">
+                    <div style="flex: 1; text-align: center;">
+                        <h4 style="color: var(--accent-color);">Without Finger Tables (O(N))</h4>
+                        <svg id="linearRing" width="100%" height="300"></svg>
+                        <div id="linearHops" style="font-size: 1.5em; font-weight: bold; color: var(--accent-color); margin-top: 10px;">Hops: 0</div>
+                    </div>
+                    <div style="flex: 1; text-align: center;">
+                        <h4 style="color: var(--success-color);">With Finger Tables (O(log N))</h4>
+                        <svg id="logRing" width="100%" height="300"></svg>
+                        <div id="logHops" style="font-size: 1.5em; font-weight: bold; color: var(--success-color); margin-top: 10px;">Hops: 0</div>
+                    </div>
+                </div>
+                <div>
+                    <h4 style="color: var(--primary-color); text-align: center;">Scaling Comparison</h4>
+                    <canvas id="scalingChart" width="800" height="200" style="max-width: 100%; border: 1px solid var(--border-color); border-radius: 5px;"></canvas>
+                </div>
+                <script>
+                (function() {
+                    const linearSvg = document.getElementById('linearRing');
+                    const logSvg = document.getElementById('logRing');
+                    const linearHopsEl = document.getElementById('linearHops');
+                    const logHopsEl = document.getElementById('logHops');
+                    const startBtn = document.getElementById('comparisonStartBtn');
+                    const canvas = document.getElementById('scalingChart');
+                    const ctx = canvas.getContext('2d');
+
+                    const nodes = [0, 1, 3, 7, 8];
+                    const target = 14;
+
+                    function drawSmallRing(svg, showFingers = false) {
+                        svg.innerHTML = '';
+                        const w = svg.clientWidth || 300;
+                        const h = 300;
+                        const cx = w / 2;
+                        const cy = h / 2;
+                        const r = 100;
+
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', cx);
+                        circle.setAttribute('cy', cy);
+                        circle.setAttribute('r', r);
+                        circle.setAttribute('fill', 'none');
+                        circle.setAttribute('stroke', '#bdc3c7');
+                        circle.setAttribute('stroke-width', '1.5');
+                        svg.appendChild(circle);
+
+                        nodes.forEach(id => {
+                            const angle = -Math.PI / 2 + (id / 16) * 2 * Math.PI;
+                            const x = cx + r * Math.cos(angle);
+                            const y = cy + r * Math.sin(angle);
+
+                            const node = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            node.setAttribute('cx', x);
+                            node.setAttribute('cy', y);
+                            node.setAttribute('r', '10');
+                            node.setAttribute('fill', id === target ? '#f39c12' : '#3498db');
+                            node.setAttribute('stroke', '#2c3e50');
+                            node.setAttribute('stroke-width', '2');
+                            node.dataset.id = id;
+                            node.dataset.x = x;
+                            node.dataset.y = y;
+                            svg.appendChild(node);
+
+                            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            label.setAttribute('x', x);
+                            label.setAttribute('y', y);
+                            label.setAttribute('text-anchor', 'middle');
+                            label.setAttribute('dominant-baseline', 'middle');
+                            label.setAttribute('fill', 'white');
+                            label.setAttribute('font-size', '10');
+                            label.setAttribute('font-weight', 'bold');
+                            label.textContent = id;
+                            svg.appendChild(label);
+                        });
+                    }
+
+                    function animateLinear() {
+                        const path = [0, 1, 3, 7, 8]; // Must visit all nodes
+                        let step = 0;
+
+                        function nextHop() {
+                            if (step >= path.length) {
+                                linearHopsEl.innerHTML = `Hops: ${step} ✓`;
+                                return;
+                            }
+
+                            linearHopsEl.textContent = `Hops: ${step}`;
+                            const currentNode = linearSvg.querySelector(`[data-id="${path[step]}"]`);
+                            currentNode.setAttribute('fill', '#27ae60');
+
+                            setTimeout(() => {
+                                currentNode.setAttribute('fill', path[step] === target ? '#f39c12' : '#3498db');
+                                step++;
+                                nextHop();
+                            }, 600);
+                        }
+                        nextHop();
+                    }
+
+                    function animateLog() {
+                        const path = [0, 8]; // Direct jump with finger table
+                        let step = 0;
+
+                        function nextHop() {
+                            if (step >= path.length) {
+                                logHopsEl.innerHTML = `Hops: ${step} ✓`;
+                                return;
+                            }
+
+                            logHopsEl.textContent = `Hops: ${step}`;
+                            const currentNode = logSvg.querySelector(`[data-id="${path[step]}"]`);
+                            currentNode.setAttribute('fill', '#27ae60');
+
+                            setTimeout(() => {
+                                currentNode.setAttribute('fill', path[step] === target ? '#f39c12' : '#3498db');
+                                step++;
+                                nextHop();
+                            }, 600);
+                        }
+                        nextHop();
+                    }
+
+                    function drawChart() {
+                        const data = [
+                            { n: 10, linear: 10, log: 4 },
+                            { n: 100, linear: 100, log: 7 },
+                            { n: 1000, linear: 1000, log: 10 },
+                            { n: 10000, linear: 10000, log: 14 },
+                            { n: 100000, linear: 100000, log: 17 },
+                            { n: 1000000, linear: 1000000, log: 20 }
+                        ];
+
+                        const w = canvas.width;
+                        const h = canvas.height;
+                        const padding = 60;
+
+                        ctx.clearRect(0, 0, w, h);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(0, 0, w, h);
+
+                        // Axes
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(padding, h - padding);
+                        ctx.lineTo(w - padding, h - padding);
+                        ctx.lineTo(w - padding, padding);
+                        ctx.stroke();
+
+                        // Linear scale for log(N), but show original N values
+                        const maxLog = Math.max(...data.map(d => d.log));
+                        const scaleX = (w - 2 * padding) / (data.length - 1);
+                        const scaleY = (h - 2 * padding) / maxLog;
+
+                        // Draw log curve
+                        ctx.strokeStyle = '#27ae60';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        data.forEach((d, i) => {
+                            const x = padding + i * scaleX;
+                            const y = h - padding - d.log * scaleY;
+                            if (i === 0) ctx.moveTo(x, y);
+                            else ctx.lineTo(x, y);
+                        });
+                        ctx.stroke();
+
+                        // X-axis labels
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '10px sans-serif';
+                        ctx.textAlign = 'center';
+                        data.forEach((d, i) => {
+                            const x = padding + i * scaleX;
+                            ctx.fillText(d.n >= 1000 ? (d.n / 1000) + 'K' : d.n, x, h - padding + 20);
+                        });
+
+                        // Y-axis labels
+                        ctx.textAlign = 'right';
+                        for (let i = 0; i <= maxLog; i += 5) {
+                            const y = h - padding - i * scaleY;
+                            ctx.fillText(i, padding - 10, y + 3);
+                        }
+
+                        // Labels
+                        ctx.font = 'bold 12px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Number of Nodes', w / 2, h - 10);
+                        ctx.save();
+                        ctx.translate(15, h / 2);
+                        ctx.rotate(-Math.PI / 2);
+                        ctx.fillText('Hops Required', 0, 0);
+                        ctx.restore();
+
+                        // Legend
+                        ctx.fillStyle = '#27ae60';
+                        ctx.fillRect(w - 150, padding, 15, 15);
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.textAlign = 'left';
+                        ctx.fillText('O(log N)', w - 130, padding + 12);
+
+                        ctx.fillStyle = '#7f8c8d';
+                        ctx.font = '11px sans-serif';
+                        ctx.fillText('(O(N) off chart at this scale)', w - 250, padding + 35);
+                    }
+
+                    startBtn.addEventListener('click', () => {
+                        drawSmallRing(linearSvg, false);
+                        drawSmallRing(logSvg, true);
+                        linearHopsEl.textContent = 'Hops: 0';
+                        logHopsEl.textContent = 'Hops: 0';
+                        setTimeout(() => {
+                            animateLinear();
+                            animateLog();
+                        }, 300);
+                    });
+
+                    drawSmallRing(linearSvg, false);
+                    drawSmallRing(logSvg, true);
+                    drawChart();
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="lookups">
+            <h2>Lookups: Finding What You Need</h2>
+
+            <h3>The Lookup Algorithm (Version 3.0 from Lecture)</h3>
+
+            <div class="callout-info">
+                <p><strong>High-level strategy</strong>: "Get as close as possible with each hop"</p>
+            </div>
+
+            <pre><code>def find_successor(i):
+    # Am I responsible for this ID?
+    if i in (prev_machine.id, my_id]:
+        return localhost
+
+    # Is my immediate successor responsible?
+    elif i in (my_id, next_machine.id]:
+        return next_machine
+
+    # Jump to the closest finger that doesn't overshoot
+    else:
+        z = closest_preceding_finger(i)
+        return z.find_successor(i)  # Recursive RPC
+
+def closest_preceding_finger(i):
+    # Check fingers from furthest to closest
+    for index in range(m, 0, -1):
+        finger_start = (my_id + 2^(index-1)) % 2^m
+        if finger_start in (my_id, i):
+            return finger[index].machine
+    # Fallback to successor
+    return next_machine</code></pre>
+
+            <h3>Walkthrough Example</h3>
+
+            <p><strong>Scenario</strong>: M0 looking for ID 14 (m=4)</p>
+
+            <pre><code>Ring: M0, M1, M3, M7, M8
+
+Step 1: M0.find_successor(14)
+  - Is 14 in (8, 0]? YES! (wraps around)
+  - Return M0!
+
+Different example: M0 looking for ID 5
+
+Step 1: M0.find_successor(5)
+  - Is 5 in (8, 0]? No
+  - Is 5 in (0, 1]? No
+  - closest_preceding_finger(5):
+    - Check index 4: start=8, is 8 in (0,5)? No
+    - Check index 3: start=4, is 4 in (0,5)? YES!
+    - Return M7
+  - Forward to M7.find_successor(5)
+
+Step 2: M7.find_successor(5)
+  - Is 5 in (3, 7]? YES!
+  - Return M7
+
+Result: Found in 2 hops! (vs 3 hops if we went M0→M1→M3→M7)</code></pre>
+
+            <h3>The Interval Notation Trick</h3>
+
+            <div class="callout-warning">
+                <p><strong>Important for exams!</strong> Chord uses mathematical intervals:</p>
+                <pre><code>(a, b] means: "greater than a, up to and including b"
+
+Examples:
+- 5 in (3, 7]? YES (3 &lt; 5 ≤ 7)
+- 3 in (3, 7]? NO (not greater than 3)
+- 7 in (3, 7]? YES (includes 7)</code></pre>
+                <p><strong>Wrap-around intervals</strong>:</p>
+                <pre><code>(8, 0] on a ring means: "9, 10, 11, 12, 13, 14, 15, 0"</code></pre>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Lookup Algorithm Trace</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 2;">
+                        <svg id="lookupRing" width="100%" height="450"></svg>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="background: rgba(52, 152, 219, 0.05); padding: 15px; border-radius: 5px;">
+                            <h4 style="color: var(--primary-color); margin-top: 0;">Lookup Parameters</h4>
+                            <div style="margin: 10px 0;">
+                                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Starting Node:</label>
+                                <select id="lookupStart" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px;">
+                                    <option value="0">M0</option>
+                                    <option value="1">M1</option>
+                                    <option value="3">M3</option>
+                                    <option value="7">M7</option>
+                                    <option value="8">M8</option>
+                                </select>
+                            </div>
+                            <div style="margin: 10px 0;">
+                                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Target ID:</label>
+                                <input type="number" id="lookupTarget" min="0" max="15" value="5" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px;">
+                            </div>
+                            <button id="executeLookupBtn" style="width: 100%; background: var(--success-color); color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; margin-bottom: 15px;">Execute Lookup</button>
+                            <div style="display: flex; gap: 5px; margin-bottom: 15px;">
+                                <button id="preset1Btn" style="flex: 1; padding: 5px; font-size: 0.85em; background: var(--info-color); color: white; border: none; border-radius: 3px; cursor: pointer;">M0 → 5</button>
+                                <button id="preset2Btn" style="flex: 1; padding: 5px; font-size: 0.85em; background: var(--info-color); color: white; border: none; border-radius: 3px; cursor: pointer;">M0 → 14</button>
+                            </div>
+                            <div id="lookupTrace" style="background: white; padding: 15px; border-radius: 5px; min-height: 200px; max-height: 250px; overflow-y: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('lookupRing');
+                    const startSel = document.getElementById('lookupStart');
+                    const targetInp = document.getElementById('lookupTarget');
+                    const execBtn = document.getElementById('executeLookupBtn');
+                    const trace = document.getElementById('lookupTrace');
+                    const preset1 = document.getElementById('preset1Btn');
+                    const preset2 = document.getElementById('preset2Btn');
+
+                    const svgW = svg.clientWidth || 600;
+                    const svgH = 450;
+                    const cx = svgW / 2;
+                    const cy = svgH / 2;
+                    const r = 160;
+                    const nodes = [0, 1, 3, 7, 8];
+
+                    const fingers = {
+                        0: [1, 3, 7, 8],
+                        1: [3, 3, 7, 8],
+                        3: [7, 7, 7, 0],
+                        7: [8, 8, 8, 0],
+                        8: [0, 0, 0, 0]
+                    };
+
+                    function getAngle(id) {
+                        return -Math.PI / 2 + (id / 16) * 2 * Math.PI;
+                    }
+
+                    function getPos(id) {
+                        const a = getAngle(id);
+                        return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+                    }
+
+                    function successor(id) {
+                        for (let n of nodes) {
+                            if (n >= id) return n;
+                        }
+                        return nodes[0];
+                    }
+
+                    function inInterval(val, start, end, leftOpen = true, rightOpen = false) {
+                        if (start < end) {
+                            return (leftOpen ? val > start : val >= start) && (rightOpen ? val < end : val <= end);
+                        } else {
+                            return (leftOpen ? val > start : val >= start) || (rightOpen ? val < end : val <= end);
+                        }
+                    }
+
+                    function closestPrecedingFinger(nodeId, target) {
+                        const ft = fingers[nodeId];
+                        for (let i = ft.length - 1; i >= 0; i--) {
+                            const fingerNode = ft[i];
+                            if (inInterval(fingerNode, nodeId, target, true, true)) {
+                                return fingerNode;
+                            }
+                        }
+                        return successor(nodeId);
+                    }
+
+                    function findSuccessor(start, target) {
+                        const path = [];
+                        const steps = [];
+                        let current = start;
+                        let hopCount = 0;
+
+                        while (true) {
+                            hopCount++;
+                            if (hopCount > 10) break;
+
+                            const prevNode = nodes[(nodes.indexOf(current) - 1 + nodes.length) % nodes.length];
+                            const nextNode = successor(current);
+
+                            path.push(current);
+
+                            if (inInterval(target, prevNode, current, true, false)) {
+                                steps.push({
+                                    node: current,
+                                    action: `Target ${target} in (${prevNode}, ${current}] - Found!`,
+                                    result: current,
+                                    found: true
+                                });
+                                break;
+                            } else if (inInterval(target, current, nextNode, true, false)) {
+                                steps.push({
+                                    node: current,
+                                    action: `Target ${target} in (${current}, ${nextNode}] - Return M${nextNode}`,
+                                    result: nextNode,
+                                    found: true
+                                });
+                                path.push(nextNode);
+                                break;
+                            } else {
+                                const next = closestPrecedingFinger(current, target);
+                                steps.push({
+                                    node: current,
+                                    action: `Target not in range, jump to M${next}`,
+                                    result: next,
+                                    found: false
+                                });
+                                current = next;
+                            }
+                        }
+
+                        return { path, steps };
+                    }
+
+                    function drawRing() {
+                        svg.innerHTML = '';
+
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', cx);
+                        circle.setAttribute('cy', cy);
+                        circle.setAttribute('r', r);
+                        circle.setAttribute('fill', 'none');
+                        circle.setAttribute('stroke', '#bdc3c7');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        for (let i = 0; i < 16; i++) {
+                            const pos = getPos(i);
+                            const isNode = nodes.includes(i);
+
+                            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            dot.setAttribute('cx', pos.x);
+                            dot.setAttribute('cy', pos.y);
+                            dot.setAttribute('r', isNode ? '12' : '3');
+                            dot.setAttribute('fill', isNode ? '#3498db' : '#ecf0f1');
+                            dot.setAttribute('stroke', isNode ? '#2c3e50' : '#bdc3c7');
+                            dot.setAttribute('stroke-width', isNode ? '2' : '1');
+                            dot.dataset.id = i;
+                            svg.appendChild(dot);
+
+                            if (isNode) {
+                                const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                                lbl.setAttribute('x', pos.x);
+                                lbl.setAttribute('y', pos.y);
+                                lbl.setAttribute('text-anchor', 'middle');
+                                lbl.setAttribute('dominant-baseline', 'middle');
+                                lbl.setAttribute('fill', 'white');
+                                lbl.setAttribute('font-weight', 'bold');
+                                lbl.setAttribute('font-size', '12');
+                                lbl.textContent = 'M' + i;
+                                svg.appendChild(lbl);
+                            }
+                        }
+                    }
+
+                    function animateLookup() {
+                        const start = parseInt(startSel.value);
+                        const target = parseInt(targetInp.value);
+
+                        if (isNaN(target) || target < 0 || target > 15) {
+                            trace.innerHTML = '<p style="color: var(--accent-color);">Invalid target ID (0-15)</p>';
+                            return;
+                        }
+
+                        drawRing();
+                        trace.innerHTML = '<p style="color: #7f8c8d;">Executing lookup...</p>';
+
+                        const { path, steps } = findSuccessor(start, target);
+
+                        let stepIndex = 0;
+                        function showStep() {
+                            if (stepIndex >= steps.length) {
+                                trace.innerHTML += `<div style="margin-top: 15px; padding: 10px; background: rgba(39, 174, 96, 0.1); border-left: 3px solid #27ae60; border-radius: 3px;">
+                                    <strong style="color: #27ae60;">✓ Complete!</strong><br>
+                                    Total hops: ${steps.length}<br>
+                                    Path: ${path.map(n => 'M' + n).join(' → ')}
+                                </div>`;
+                                return;
+                            }
+
+                            const step = steps[stepIndex];
+                            const nodeEl = svg.querySelector(`[data-id="${step.node}"]`);
+                            nodeEl.setAttribute('fill', '#27ae60');
+
+                            trace.innerHTML = steps.slice(0, stepIndex + 1).map((s, i) => `
+                                <div style="padding: 8px; margin-bottom: 5px; background: ${i === stepIndex ? 'rgba(39, 174, 96, 0.1)' : 'white'}; border-left: 3px solid ${s.found ? '#27ae60' : '#3498db'}; border-radius: 3px; font-size: 0.9em;">
+                                    <strong>Step ${i + 1}:</strong> M${s.node}<br>
+                                    <span style="color: #7f8c8d;">${s.action}</span>
+                                </div>
+                            `).join('');
+
+                            if (stepIndex < steps.length - 1) {
+                                setTimeout(() => {
+                                    nodeEl.setAttribute('fill', '#3498db');
+                                    stepIndex++;
+                                    showStep();
+                                }, 1200);
+                            } else {
+                                stepIndex++;
+                                setTimeout(showStep, 800);
+                            }
+                        }
+
+                        setTimeout(showStep, 300);
+                    }
+
+                    execBtn.addEventListener('click', animateLookup);
+                    preset1.addEventListener('click', () => { startSel.value = '0'; targetInp.value = '5'; animateLookup(); });
+                    preset2.addEventListener('click', () => { startSel.value = '0'; targetInp.value = '14'; animateLookup(); });
+
+                    drawRing();
+                    trace.innerHTML = '<p style="text-align: center; color: #7f8c8d; padding: 20px;">Select parameters and click "Execute Lookup"</p>';
+                })();
+                </script>
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Interval Notation on Ring</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 2;">
+                        <svg id="intervalRing" width="100%" height="400"></svg>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="background: rgba(52, 152, 219, 0.05); padding: 15px; border-radius: 5px;">
+                            <h4 style="color: var(--primary-color); margin-top: 0;">Interval Builder</h4>
+                            <div style="margin: 10px 0;">
+                                <label style="font-weight: bold;">Start: <span id="intStart">3</span></label>
+                                <input type="range" id="startSlider" min="0" max="15" value="3" style="width: 100%;">
+                            </div>
+                            <div style="margin: 10px 0;">
+                                <label style="font-weight: bold;">End: <span id="intEnd">7</span></label>
+                                <input type="range" id="endSlider" min="0" max="15" value="7" style="width: 100%;">
+                            </div>
+                            <div style="margin: 10px 0;">
+                                <label style="font-weight: bold;">Type:</label><br>
+                                <label style="margin-right: 15px;"><input type="radio" name="intType" value="()" checked> (a, b]</label>
+                                <label><input type="radio" name="intType" value="[]"> [a, b]</label>
+                            </div>
+                            <div id="intervalDisplay" style="padding: 15px; background: white; border-radius: 5px; text-align: center; font-size: 1.2em; font-weight: bold; color: var(--secondary-color); margin: 15px 0;"></div>
+                            <div style="margin: 15px 0;">
+                                <label style="font-weight: bold;">Test Value:</label>
+                                <input type="number" id="testValue" min="0" max="15" value="5" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 3px; margin-top: 5px;">
+                                <div id="testResult" style="margin-top: 10px; padding: 10px; background: white; border-radius: 5px; min-height: 40px;"></div>
+                            </div>
+                            <div style="margin-top: 15px;">
+                                <h4 style="font-size: 0.9em; color: var(--primary-color);">Example Intervals:</h4>
+                                <button class="intervalExample" data-start="3" data-end="7" data-type="()" style="display: block; width: 100%; margin: 5px 0; padding: 5px; background: var(--info-color); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.85em;">(3, 7]</button>
+                                <button class="intervalExample" data-start="8" data-end="0" data-type="()" style="display: block; width: 100%; margin: 5px 0; padding: 5px; background: var(--info-color); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.85em;">(8, 0] - Wrap-around</button>
+                                <button class="intervalExample" data-start="5" data-end="12" data-type="[]" style="display: block; width: 100%; margin: 5px 0; padding: 5px; background: var(--info-color); color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.85em;">[5, 12]</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('intervalRing');
+                    const startSlider = document.getElementById('startSlider');
+                    const endSlider = document.getElementById('endSlider');
+                    const intStartEl = document.getElementById('intStart');
+                    const intEndEl = document.getElementById('intEnd');
+                    const intervalDisplay = document.getElementById('intervalDisplay');
+                    const testValueInp = document.getElementById('testValue');
+                    const testResult = document.getElementById('testResult');
+
+                    const svgW = svg.clientWidth || 600;
+                    const svgH = 400;
+                    const cx = svgW / 2;
+                    const cy = svgH / 2;
+                    const r = 140;
+
+                    function getAngle(id) {
+                        return -Math.PI / 2 + (id / 16) * 2 * Math.PI;
+                    }
+
+                    function getPos(id) {
+                        const a = getAngle(id);
+                        return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+                    }
+
+                    function inInterval(val, start, end, leftOpen) {
+                        if (start < end) {
+                            return (leftOpen ? val > start : val >= start) && val <= end;
+                        } else {
+                            return (leftOpen ? val > start : val >= start) || val <= end;
+                        }
+                    }
+
+                    function drawRing() {
+                        const start = parseInt(startSlider.value);
+                        const end = parseInt(endSlider.value);
+                        const leftOpen = document.querySelector('input[name="intType"]:checked').value === '()';
+
+                        svg.innerHTML = '';
+
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', cx);
+                        circle.setAttribute('cy', cy);
+                        circle.setAttribute('r', r);
+                        circle.setAttribute('fill', 'none');
+                        circle.setAttribute('stroke', '#bdc3c7');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        for (let i = 0; i < 16; i++) {
+                            const pos = getPos(i);
+                            const inInt = inInterval(i, start, end, leftOpen);
+
+                            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            dot.setAttribute('cx', pos.x);
+                            dot.setAttribute('cy', pos.y);
+                            dot.setAttribute('r', inInt ? '10' : '5');
+                            dot.setAttribute('fill', inInt ? '#27ae60' : '#ecf0f1');
+                            dot.setAttribute('stroke', '#2c3e50');
+                            dot.setAttribute('stroke-width', inInt ? '2' : '1');
+                            svg.appendChild(dot);
+
+                            const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            const lblR = r + 20;
+                            const lblA = getAngle(i);
+                            lbl.setAttribute('x', cx + lblR * Math.cos(lblA));
+                            lbl.setAttribute('y', cy + lblR * Math.sin(lblA));
+                            lbl.setAttribute('text-anchor', 'middle');
+                            lbl.setAttribute('dominant-baseline', 'middle');
+                            lbl.setAttribute('font-size', inInt ? '14' : '11');
+                            lbl.setAttribute('font-weight', inInt ? 'bold' : 'normal');
+                            lbl.setAttribute('fill', inInt ? '#27ae60' : '#7f8c8d');
+                            lbl.textContent = i;
+                            svg.appendChild(lbl);
+                        }
+
+                        const leftBracket = leftOpen ? '(' : '[';
+                        intervalDisplay.textContent = `${leftBracket}${start}, ${end}]`;
+
+                        testInterval();
+                    }
+
+                    function testInterval() {
+                        const val = parseInt(testValueInp.value);
+                        const start = parseInt(startSlider.value);
+                        const end = parseInt(endSlider.value);
+                        const leftOpen = document.querySelector('input[name="intType"]:checked').value === '()';
+
+                        if (isNaN(val) || val < 0 || val > 15) {
+                            testResult.innerHTML = '<span style="color: var(--accent-color);">Invalid value (0-15)</span>';
+                            return;
+                        }
+
+                        const inInt = inInterval(val, start, end, leftOpen);
+                        const leftBracket = leftOpen ? '(' : '[';
+
+                        testResult.innerHTML = `
+                            <div style="font-weight: bold; color: ${inInt ? '#27ae60' : '#e74c3c'};">
+                                ${val} ${inInt ? '∈' : '∉'} ${leftBracket}${start}, ${end}]
+                            </div>
+                            <div style="font-size: 0.85em; color: #7f8c8d; margin-top: 5px;">
+                                ${inInt ? 'Value is IN interval' : 'Value is NOT in interval'}
+                            </div>
+                        `;
+                    }
+
+                    startSlider.addEventListener('input', () => { intStartEl.textContent = startSlider.value; drawRing(); });
+                    endSlider.addEventListener('input', () => { intEndEl.textContent = endSlider.value; drawRing(); });
+                    document.querySelectorAll('input[name="intType"]').forEach(el => {
+                        el.addEventListener('change', drawRing);
+                    });
+                    testValueInp.addEventListener('input', testInterval);
+
+                    document.querySelectorAll('.intervalExample').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            startSlider.value = btn.dataset.start;
+                            endSlider.value = btn.dataset.end;
+                            intStartEl.textContent = btn.dataset.start;
+                            intEndEl.textContent = btn.dataset.end;
+                            document.querySelector(`input[name="intType"][value="${btn.dataset.type}"]`).checked = true;
+                            drawRing();
+                        });
+                    });
+
+                    drawRing();
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="dynamic-networks">
+            <h2>Dynamic Networks: Joins and Departures</h2>
+
+            <h3>The Three Stages of Joining</h3>
+
+            <div class="callout-info">
+                <p><strong>Memory Aid: "IUT"</strong></p>
+                <ol>
+                    <li><strong>I</strong>nitialize my finger table</li>
+                    <li><strong>U</strong>pdate other machines' finger tables</li>
+                    <li><strong>T</strong>ransfer keys I'm now responsible for</li>
+                </ol>
+            </div>
+
+            <h3>Stage 1: Initialize Finger Table</h3>
+
+            <p><strong>Strategy</strong>: Ask an existing node to find successors for me</p>
+
+            <pre><code>def init_finger_table(existing_node):
+    # Calculate and fill each finger entry
+    for i in range(1, m+1):
+        finger[i].start = (my_id + 2^(i-1)) % 2^m
+        finger[i].machine = existing_node.find_successor(finger[i].start)
+
+    # Set up successor and predecessor links
+    next_machine = finger[1].machine
+    prev_machine = next_machine.prev_machine
+    next_machine.prev_machine = me</code></pre>
+
+            <p><strong>Example</strong>: M4 joining ring with M0, M1, M3, M7, M8</p>
+
+            <pre><code>M4's finger table construction:
+  Index 1: successor(4+1) = successor(5) = M7
+  Index 2: successor(4+2) = successor(6) = M7
+  Index 3: successor(4+4) = successor(8) = M8
+  Index 4: successor(4+8) = successor(12) = M0</code></pre>
+
+            <h3>Stage 2: Update Others' Finger Tables</h3>
+
+            <p><strong>The challenge</strong>: Other machines might need to point to me now!</p>
+
+            <p><strong>Strategy</strong>: For each finger index i, find the machine that might need to update its i-th finger</p>
+
+            <pre><code>def update_others():
+    for i in range(1, m+1):
+        # Find the last node whose i-th finger might be me
+        target = find_predecessor(my_id - 2^(i-1))
+        target.update_finger_table(me, i)</code></pre>
+
+            <p><strong>Example</strong>: When M4 joins:</p>
+
+            <pre><code>Index 1: Who's 1st finger might need updating?
+  - find_predecessor(4 - 2^0) = find_predecessor(3)
+  - That's M3!
+  - M3's finger[1] = successor(3+1) = successor(4) = M4 ✓
+
+Index 2: Who's 2nd finger might need updating?
+  - find_predecessor(4 - 2^1) = find_predecessor(2)
+  - That's M1
+  - M1's finger[2] = successor(1+2) = successor(3) = M3 (no change)</code></pre>
+
+            <h3>Stage 3: Transfer Keys</h3>
+
+            <p>After joining, transfer keys from successor that now belong to me:</p>
+
+            <pre><code>M4 joined between M3 and M7
+Keys with IDs in (3, 4] should move from M7 to M4</code></pre>
+
+            <h3>Node Departures and Failures</h3>
+
+            <p><strong>Planned departure</strong>: Transfer keys to successor, update neighbors</p>
+
+            <p><strong>Unexpected failure</strong>: This is where fault tolerance comes in...</p>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Node Join Process (IUT)</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create a three-stage animated visualization of M4 joining the ring with existing nodes M0, M1, M3, M7, M8. Use a tabbed interface with three stages: (1) "Initialize" - Show M4 (grayed out, not yet part of ring) constructing its finger table by asking M0 for successors. Animate each lookup with arrows and update the finger table in real-time. (2) "Update Others" - Show which existing nodes need finger table updates. Highlight M3 and M1, show their finger tables before/after, with changed entries in red. (3) "Transfer Keys" - Show files moving from M7 to M4 with animated icons. Display the key ID range (3, 4] being transferred. Include a timeline showing all three stages sequentially, with the ability to step forward/backward through each action.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="scalability-and-fault-tolerance">
+            <h2>Scalability and Fault Tolerance</h2>
+
+            <h3>Scalability: O(log N) is Beautiful</h3>
+
+            <p><strong>Space complexity</strong> (per node):</p>
+            <ul>
+                <li>Store O(log N) fingers in finger table</li>
+                <li>Not O(N)!</li>
+            </ul>
+
+            <p><strong>Lookup complexity</strong>:</p>
+            <ul>
+                <li>O(log N) hops to find any key</li>
+                <li>Each hop: one network round-trip</li>
+            </ul>
+
+            <div class="callout-success">
+                <p><strong>Example:</strong></p>
+                <pre><code>10 machines    → ~3 hops max
+100 machines   → ~7 hops max
+1000 machines  → ~10 hops max
+1,000,000      → ~20 hops max
+
+This is LOGARITHMIC scaling!</code></pre>
+            </div>
+
+            <h3>Fault Tolerance: Successor Lists</h3>
+
+            <p><strong>Problem</strong>: What if your successor fails during a lookup?</p>
+
+            <p><strong>Solution</strong>: Maintain a list of r successors (not just one)</p>
+
+            <pre><code>M0's successor list (r=3):
+  1. M1
+  2. M3
+  3. M7</code></pre>
+
+            <p><strong>When M1 fails</strong>:</p>
+            <pre><code>M0 detects failure → switches to M3 as new successor
+Eventually stabilization fixes finger tables</code></pre>
+
+            <div class="callout-info">
+                <p><strong>Key insight</strong>: Routing still works even if some fingers are wrong! You'll just take sub-optimal paths.</p>
+            </div>
+
+            <h3>Periodic Stabilization</h3>
+
+            <p><strong>Problem</strong>: Concurrent joins/departures can leave finger tables inconsistent</p>
+
+            <p><strong>Solution</strong>: Periodically run stabilization protocol</p>
+
+            <pre><code>def stabilize():
+    # Ask successor about its predecessor
+    x = successor.predecessor
+
+    # If there's a node between me and my successor, update
+    if x in (my_id, successor.id):
+        successor = x
+
+    # Notify successor about me
+    successor.notify(me)
+
+def notify(n):
+    # If n is a better predecessor, update
+    if predecessor is None or n in (predecessor.id, my_id):
+        predecessor = n</code></pre>
+
+            <p><strong>How often?</strong> Periodically (e.g., every few seconds)</p>
+
+            <p><strong>Effect</strong>: Eventually consistent - system converges to correct state</p>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Logarithmic Scaling Graph</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive graph comparing linear O(N) vs logarithmic O(log N) scaling. X-axis: number of nodes (10 to 1,000,000 on log scale). Y-axis: maximum hops required. Show two curves: one linear (blue, growing steeply) and one logarithmic (green, growing slowly). Add specific data points at 10, 100, 1000, 10000, 100000, 1000000 nodes with labels showing exact hop counts. Include a slider that lets users select a network size and see the corresponding hop counts for both approaches highlighted. Display the mathematical formulas (N vs log₂(N)) and include an area chart showing the "efficiency gap" between the two approaches that grows dramatically as N increases.</p>
+                </div>
+            </div>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Fault Tolerance with Successor Lists</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive demonstration of fault tolerance using successor lists. Display a Chord ring with nodes M0, M1, M3, M7, M8. Show M0's successor list in a table (M1, M3, M7). Include a "Simulate Failure" button for each node. When M1 fails: (1) Animate M1 turning red and disconnecting, (2) Show M0's successor list with M1 crossed out, (3) Animate M0 updating to use M3 as new successor, (4) Show a lookup in progress that successfully routes around the failed node. Include controls to set the successor list size (r = 1, 2, 3, 4) and demonstrate how larger r provides better fault tolerance. Track and display "lookups succeeded" vs "lookups failed" as nodes fail.</p>
+                </div>
+            </div>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Stabilization Protocol</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an animated visualization of the stabilization protocol. Show a ring with some nodes having incorrect successor/predecessor pointers (drawn in red/dashed). Include a timeline control and "Run Stabilization Round" button. When clicked, animate each node executing the stabilize() function: (1) Query successor's predecessor, (2) Compare and update if needed (show pointer changing from red to green), (3) Send notify message. After multiple rounds, show the system converging to correct state (all pointers green/solid). Include a "consistency meter" showing percentage of correct pointers. Provide a scenario selector with options like "After concurrent joins", "After node failure", "After network partition" to show different starting states.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="exam-tips">
+            <h2>Exam Tips and Common Pitfalls</h2>
+
+            <h3>Key Formulas to Memorize</h3>
+
+            <div class="callout-warning">
+                <ol>
+                    <li><strong>Finger table entry i</strong> (for node x):
+                        <pre><code>finger[i].start = (x + 2^(i-1)) mod 2^m
+finger[i].machine = successor(finger[i].start)</code></pre>
+                    </li>
+                    <li><strong>Successor relationship</strong>:
+                        <pre><code>successor(k) = first node with ID ≥ k (clockwise)</code></pre>
+                    </li>
+                    <li><strong>Space/Time complexity</strong>:
+                        <pre><code>Finger table size: O(log N)
+Lookup time: O(log N) hops</code></pre>
+                    </li>
+                </ol>
+            </div>
+
+            <h3>Common Exam Questions</h3>
+
+            <p><strong>Q1: "How many hops to find key K from node N?"</strong></p>
+            <ul>
+                <li>Trace through the algorithm</li>
+                <li>Each hop gets you exponentially closer</li>
+                <li>Show your work!</li>
+            </ul>
+
+            <p><strong>Q2: "What happens when node X joins?"</strong></p>
+            <ul>
+                <li>Initialize X's finger table (IUT Step 1)</li>
+                <li>Update affected nodes' fingers (IUT Step 2)</li>
+                <li>Transfer keys from successor (IUT Step 3)</li>
+            </ul>
+
+            <p><strong>Q3: "Why powers of 2 in finger tables?"</strong></p>
+            <ul>
+                <li>Logarithmic complexity</li>
+                <li>Binary search on a circular space</li>
+                <li>Each finger doubles the coverage</li>
+            </ul>
+
+            <h3>Don't Confuse These!</h3>
+
+            <div class="callout-warning">
+                <ol>
+                    <li><strong>ID vs. Address</strong>:
+                        <ul>
+                            <li>ID: Position on ring (from hash)</li>
+                            <li>Address: Actual network location (IP)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Successor vs. Finger</strong>:
+                        <ul>
+                            <li>Successor: Immediate next node on ring</li>
+                            <li>Finger: One of m strategic shortcuts</li>
+                        </ul>
+                    </li>
+                    <li><strong>Interval notation</strong>:
+                        <ul>
+                            <li>(a, b]: Excludes a, includes b</li>
+                            <li>[a, b): Includes a, excludes b</li>
+                            <li>Watch for wrap-around: (8, 2] = {9,10,11,12,13,14,15,0,1,2}</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <h3>Visual Mnemonics</h3>
+
+            <div class="callout-info">
+                <p><strong>"RING"</strong> - Remember Chord's core properties:</p>
+                <ul>
+                    <li><strong>R</strong>ecursive lookups</li>
+                    <li><strong>I</strong>D space is circular</li>
+                    <li><strong>N</strong>o central directory</li>
+                    <li><strong>G</strong>uaranteed O(log N) hops</li>
+                </ul>
+
+                <p><strong>"FINGER"</strong> - For finger table properties:</p>
+                <ul>
+                    <li><strong>F</strong>ast lookups</li>
+                    <li><strong>I</strong>ncreasing powers of 2</li>
+                    <li><strong>N</strong>umber of entries = m</li>
+                    <li><strong>G</strong>ets you closer each hop</li>
+                    <li><strong>E</strong>xponential jumps</li>
+                    <li><strong>R</strong>ecursive RPC calls</li>
+                </ul>
+            </div>
+
+            <h3>Practice Problem Template</h3>
+
+            <p>When given a lookup problem:</p>
+
+            <ol>
+                <li>Draw the ring with existing nodes</li>
+                <li>Mark the target ID clearly</li>
+                <li>Start at the given node</li>
+                <li>For each hop:
+                    <ol type="a">
+                        <li>Check if target is in my range</li>
+                        <li>Check if target is in successor's range</li>
+                        <li>Find closest preceding finger</li>
+                        <li>Jump to that finger</li>
+                    </ol>
+                </li>
+                <li>Count total hops</li>
+            </ol>
+        </section>
+
+        <section id="pseudocode-summary">
+            <h2>Quick Reference: Pseudocode Summary</h2>
+
+            <h3>Core Data Structures</h3>
+
+            <pre><code>class ChordNode:
+    my_id: int                    # My position on ring
+    finger[1..m]: FingerEntry     # Finger table
+    predecessor: ChordNode        # Previous node on ring
+
+class FingerEntry:
+    start: int                    # (my_id + 2^(i-1)) mod 2^m
+    machine: ChordNode            # successor(start)</code></pre>
+
+            <h3>Main Operations</h3>
+
+            <pre><code># Find node responsible for ID
+def find_successor(id):
+    if id in (predecessor.id, my_id]:
+        return me
+    elif id in (my_id, successor.id]:
+        return successor
+    else:
+        n = closest_preceding_finger(id)
+        return n.find_successor(id)
+
+# Find closest finger before ID
+def closest_preceding_finger(id):
+    for i in range(m, 0, -1):
+        if finger[i].start in (my_id, id):
+            return finger[i].machine
+    return successor
+
+# Join the network
+def join(existing_node):
+    init_finger_table(existing_node)
+    update_others()
+    transfer_keys()</code></pre>
+        </section>
+
+        <section id="advanced-insights">
+            <h2>Advanced Insights</h2>
+
+            <h3>Why Chord Can Have Poor Locality</h3>
+
+            <div class="callout-warning">
+                <p><strong>From lecture</strong>: "Locality is bad"</p>
+                <p><strong>What this means</strong>: Two machines physically close (same datacenter) are likely far apart on the hash ring!</p>
+            </div>
+
+            <pre><code>M_server1: IP=192.168.1.10  → SHA-1 → ID: 42
+M_server2: IP=192.168.1.11  → SHA-1 → ID: 9,876
+
+Physically: same rack
+On ring: opposite sides!</code></pre>
+
+            <p><strong>Consequence</strong>: Looking up a key stored on your neighbor might require log N hops across the internet!</p>
+
+            <p><strong>Solution in practice</strong>: Location-aware DHTs (e.g., Kademlia's XOR metric)</p>
+
+            <h3>Security Considerations</h3>
+
+            <div class="callout-info">
+                <p><strong>From lecture</strong>: "Self-authenticating data"</p>
+                <p><strong>Problem</strong>: Malicious node could lie about stored data</p>
+                <p><strong>Solution</strong>: Store data where key = SHA-1(value)</p>
+                <pre><code>Store file F at successor(SHA-1(F))
+To retrieve: compute SHA-1(F), verify it matches!</code></pre>
+                <p>This prevents tampering since changing F changes its hash!</p>
+            </div>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Locality Problem</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create a dual-view visualization showing the locality problem. Left side: A physical network map showing servers in two datacenters (US East and US West), each with 3-4 servers in close proximity. Right side: The Chord ring showing how these same servers map to IDs after hashing - they should be scattered randomly around the ring, not clustered. Draw lines connecting the same server in both views. Include an example lookup: server A (US East) looking for data on server B (also US East, physically next to A) - but on the ring they're far apart, requiring multiple hops through servers in US West. Highlight the network latency for each hop in milliseconds. Use color coding to show physical location (blue=US East, orange=US West) to emphasize the mismatch.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="final-checklist">
+            <h2>Final Checklist Before Exam</h2>
+
+            <ul class="checklist">
+                <li>Can you draw a Chord ring and mark successors?</li>
+                <li>Can you build a finger table for any node?</li>
+                <li>Can you trace a lookup showing each hop?</li>
+                <li>Can you explain why lookup is O(log N)?</li>
+                <li>Do you know all three steps of joining?</li>
+                <li>Can you explain successor lists for fault tolerance?</li>
+                <li>Do you understand interval notation with wrap-around?</li>
+                <li>Can you explain the trade-off between fingers and locality?</li>
+            </ul>
+        </section>
+
+        <section id="practice-questions">
+            <h2>Practice Questions</h2>
+
+            <h3>Question 1: Finger Table Construction</h3>
+
+            <p>Given a Chord ring with m=4 and existing nodes M0, M2, M5, M10, construct the complete finger table for M2.</p>
+
+            <details>
+                <summary>Click to reveal answer</summary>
+                <div class="callout-success">
+                    <pre><code>M2's finger table:
+Index | Start      | Successor
+------|------------|----------
+  1   | 2+2^0 = 3  | M5
+  2   | 2+2^1 = 4  | M5
+  3   | 2+2^2 = 6  | M10
+  4   | 2+2^3 = 10 | M10</code></pre>
+                </div>
+            </details>
+
+            <h3>Question 2: Lookup Trace</h3>
+
+            <p>On the same ring (M0, M2, M5, M10, m=4), trace M2.find_successor(8). Show each hop.</p>
+
+            <details>
+                <summary>Click to reveal answer</summary>
+                <div class="callout-success">
+                    <pre><code>Step 1: M2.find_successor(8)
+  - Is 8 in (0, 2]? No
+  - Is 8 in (2, 5]? No
+  - closest_preceding_finger(8):
+    - Check finger[4]: start=10, is 10 in (2,8)? No
+    - Check finger[3]: start=6, is 6 in (2,8)? Yes!
+    - Return M10
+  - Forward to M10.find_successor(8)
+
+Step 2: M10.find_successor(8)
+  - Is 8 in (5, 10]? Yes!
+  - Return M10
+
+Total: 2 hops</code></pre>
+                </div>
+            </details>
+
+            <h3>Question 3: Impact of Node Join</h3>
+
+            <p>When M7 joins the ring (M0, M2, M5, M10), which existing nodes need to update their finger tables and why?</p>
+
+            <details>
+                <summary>Click to reveal answer</summary>
+                <div class="callout-success">
+                    <p>Check for each finger index i, which node has predecessor(7 - 2^(i-1)):</p>
+                    <pre><code>i=1: predecessor(7-1=6) = M5
+  - M5's finger[1]: successor(6) changes from M10 to M7 ✓
+
+i=2: predecessor(7-2=5) = M5
+  - M5's finger[2]: successor(7) = M7 ✓
+
+i=3: predecessor(7-4=3) = M2
+  - M2's finger[3]: successor(6) changes from M10 to M7 ✓
+
+i=4: predecessor(7-8=-1≡15) = M10
+  - M10's finger[4]: successor(10+8=18≡2) = M2 (no change)
+
+Nodes to update: M5 (fingers 1,2) and M2 (finger 3)</code></pre>
+                </div>
+            </details>
+        </section>
+
+        <div class="callout-success">
+            <p><strong>Good luck on your exam!</strong> Remember: Chord is elegant because it combines simplicity (just a ring) with clever optimization (finger tables) to achieve logarithmic scaling. Focus on understanding the "why" behind each design choice, and the "how" will follow!</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

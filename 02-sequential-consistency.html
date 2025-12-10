@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sequential Consistency | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Sequential Consistency</h1>
+            <p>CS 416 Study Guide - Topic 02</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#core-concept">Core Concept</a></li>
+                <li><a href="#why-sequential-consistency-matters">Why Sequential Consistency Matters</a></li>
+                <li><a href="#the-two-rules">The Two Rules of Sequential Consistency</a></li>
+                <li><a href="#real-world-analogy">Real-World Analogy</a></li>
+                <li><a href="#sequential-vs-strict">Sequential vs Strict Consistency</a></li>
+                <li><a href="#working-through-examples">Working Through Examples</a></li>
+                <li><a href="#how-to-check">How to Check Sequential Consistency</a></li>
+                <li><a href="#common-pitfalls">Common Pitfalls and Tricks</a></li>
+                <li><a href="#practice-problems">Practice Problems</a></li>
+                <li><a href="#memory-aids">Memory Aids</a></li>
+                <li><a href="#real-world-systems">Real-World Systems</a></li>
+            </ol>
+        </section>
+
+        <section id="core-concept">
+            <h2>Core Concept</h2>
+
+            <div class="callout-info">
+                <strong>Sequential Consistency</strong> is a consistency model for distributed systems (especially those with replicated data) that ensures operations appear to execute in some global sequential order, while still respecting the order of operations within each individual process.
+            </div>
+
+            <p>Think of it this way: If you took all the operations from all machines and lined them up in a single sequence, the result should make sense and match what each machine observed. But unlike strict consistency, this sequence doesn't have to match real-time - it just has to be a valid ordering that everyone could agree on.</p>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Sequential Consistency Overview</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <strong>Instructions:</strong> Click on any operation to highlight its position in the total order and see the program order constraints for its machine.
+                </div>
+                <div id="sc-overview-viz"></div>
+                <script>
+                (function() {
+                    const container = document.getElementById('sc-overview-viz');
+                    const width = Math.min(900, container.offsetWidth || 900);
+                    const height = 500;
+
+                    // Define machines and their operations
+                    const machines = [
+                        { name: 'M1', color: '#3498db', ops: [
+                            { type: 'write', var: 'X', value: 1, time: 1 },
+                            { type: 'write', var: 'Y', value: 1, time: 4 }
+                        ]},
+                        { name: 'M2', color: '#e74c3c', ops: [
+                            { type: 'read', var: 'X', value: 1, time: 2 },
+                            { type: 'write', var: 'Z', value: 2, time: 5 }
+                        ]},
+                        { name: 'M3', color: '#27ae60', ops: [
+                            { type: 'read', var: 'Y', value: 1, time: 3 },
+                            { type: 'read', var: 'Z', value: 2, time: 6 }
+                        ]}
+                    ];
+
+                    let selectedOp = null;
+
+                    // Create SVG
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('width', width);
+                    svg.setAttribute('height', height);
+                    svg.style.display = 'block';
+                    svg.style.margin = '0 auto';
+
+                    // Draw timeline
+                    const timelineY = 100;
+                    const timelineStart = 50;
+                    const timelineEnd = width - 50;
+
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', timelineStart);
+                    line.setAttribute('y1', timelineY);
+                    line.setAttribute('x2', timelineEnd);
+                    line.setAttribute('y2', timelineY);
+                    line.setAttribute('stroke', '#2c3e50');
+                    line.setAttribute('stroke-width', '3');
+                    svg.appendChild(line);
+
+                    // Add arrow to timeline
+                    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    arrow.setAttribute('points', `${timelineEnd},${timelineY} ${timelineEnd-10},${timelineY-5} ${timelineEnd-10},${timelineY+5}`);
+                    arrow.setAttribute('fill', '#2c3e50');
+                    svg.appendChild(arrow);
+
+                    // Label
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', width / 2);
+                    label.setAttribute('y', timelineY - 20);
+                    label.setAttribute('text-anchor', 'middle');
+                    label.setAttribute('fill', '#2c3e50');
+                    label.setAttribute('font-size', '14');
+                    label.setAttribute('font-weight', 'bold');
+                    label.textContent = 'Total Order (Time →)';
+                    svg.appendChild(label);
+
+                    // Draw operations on timeline
+                    const allOps = [];
+                    machines.forEach(machine => {
+                        machine.ops.forEach((op, idx) => {
+                            allOps.push({ ...op, machine: machine.name, color: machine.color, machineIdx: idx });
+                        });
+                    });
+                    allOps.sort((a, b) => a.time - b.time);
+
+                    const opElements = [];
+                    allOps.forEach((op, idx) => {
+                        const x = timelineStart + (timelineEnd - timelineStart) * (op.time / 7);
+                        const y = timelineY;
+
+                        // Circle for operation
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', x);
+                        circle.setAttribute('cy', y);
+                        circle.setAttribute('r', 20);
+                        circle.setAttribute('fill', op.color);
+                        circle.setAttribute('stroke', '#2c3e50');
+                        circle.setAttribute('stroke-width', '2');
+                        circle.style.cursor = 'pointer';
+                        circle.style.transition = 'all 0.3s';
+
+                        // Operation label
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', x);
+                        text.setAttribute('y', y + 5);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', 'white');
+                        text.setAttribute('font-size', '12');
+                        text.setAttribute('font-weight', 'bold');
+                        text.style.pointerEvents = 'none';
+                        text.textContent = op.type === 'write' ? 'W' : 'R';
+
+                        // Detail label below
+                        const detail = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        detail.setAttribute('x', x);
+                        detail.setAttribute('y', y + 40);
+                        detail.setAttribute('text-anchor', 'middle');
+                        detail.setAttribute('fill', '#2c3e50');
+                        detail.setAttribute('font-size', '11');
+                        detail.textContent = `${op.machine}: ${op.var}=${op.value}`;
+
+                        opElements.push({ circle, text, detail, op });
+
+                        svg.appendChild(circle);
+                        svg.appendChild(text);
+                        svg.appendChild(detail);
+
+                        // Click handler
+                        circle.onclick = () => {
+                            selectedOp = op;
+                            updateVisualization();
+                        };
+                    });
+
+                    // Draw machine lanes
+                    const laneY = 200;
+                    const laneHeight = 80;
+                    machines.forEach((machine, idx) => {
+                        const y = laneY + idx * laneHeight;
+
+                        // Lane background
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        rect.setAttribute('x', timelineStart);
+                        rect.setAttribute('y', y);
+                        rect.setAttribute('width', timelineEnd - timelineStart);
+                        rect.setAttribute('height', laneHeight - 10);
+                        rect.setAttribute('fill', machine.color);
+                        rect.setAttribute('opacity', '0.1');
+                        rect.setAttribute('rx', '5');
+                        svg.appendChild(rect);
+
+                        // Machine label
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('x', timelineStart - 10);
+                        label.setAttribute('y', y + laneHeight / 2);
+                        label.setAttribute('text-anchor', 'end');
+                        label.setAttribute('fill', machine.color);
+                        label.setAttribute('font-size', '16');
+                        label.setAttribute('font-weight', 'bold');
+                        label.textContent = machine.name;
+                        svg.appendChild(label);
+
+                        // Draw operations in lane
+                        machine.ops.forEach((op, opIdx) => {
+                            const x = timelineStart + (timelineEnd - timelineStart) * (op.time / 7);
+                            const opY = y + laneHeight / 2;
+
+                            const opCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            opCircle.setAttribute('cx', x);
+                            opCircle.setAttribute('cy', opY);
+                            opCircle.setAttribute('r', 15);
+                            opCircle.setAttribute('fill', machine.color);
+                            opCircle.setAttribute('stroke', '#2c3e50');
+                            opCircle.setAttribute('stroke-width', '2');
+                            svg.appendChild(opCircle);
+
+                            // Arrow to timeline
+                            const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            arrow.setAttribute('x1', x);
+                            arrow.setAttribute('y1', opY);
+                            arrow.setAttribute('x2', x);
+                            arrow.setAttribute('y2', timelineY + 25);
+                            arrow.setAttribute('stroke', machine.color);
+                            arrow.setAttribute('stroke-width', '2');
+                            arrow.setAttribute('stroke-dasharray', '5,5');
+                            arrow.setAttribute('opacity', '0.5');
+                            svg.appendChild(arrow);
+
+                            // Program order arrow
+                            if (opIdx < machine.ops.length - 1) {
+                                const nextOp = machine.ops[opIdx + 1];
+                                const nextX = timelineStart + (timelineEnd - timelineStart) * (nextOp.time / 7);
+
+                                const orderArrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                                orderArrow.setAttribute('x1', x + 15);
+                                orderArrow.setAttribute('y1', opY);
+                                orderArrow.setAttribute('x2', nextX - 15);
+                                orderArrow.setAttribute('y2', opY);
+                                orderArrow.setAttribute('stroke', machine.color);
+                                orderArrow.setAttribute('stroke-width', '3');
+                                orderArrow.setAttribute('marker-end', 'url(#arrowhead-' + idx + ')');
+                                svg.appendChild(orderArrow);
+                            }
+                        });
+
+                        // Define arrowhead marker
+                        const defs = svg.querySelector('defs') || document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                        if (!svg.querySelector('defs')) svg.insertBefore(defs, svg.firstChild);
+
+                        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker.setAttribute('id', 'arrowhead-' + idx);
+                        marker.setAttribute('markerWidth', '10');
+                        marker.setAttribute('markerHeight', '10');
+                        marker.setAttribute('refX', '9');
+                        marker.setAttribute('refY', '3');
+                        marker.setAttribute('orient', 'auto');
+                        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                        polygon.setAttribute('fill', machine.color);
+                        marker.appendChild(polygon);
+                        defs.appendChild(marker);
+                    });
+
+                    function updateVisualization() {
+                        opElements.forEach(({ circle, op }) => {
+                            if (selectedOp && op === selectedOp) {
+                                circle.setAttribute('r', 25);
+                                circle.setAttribute('stroke-width', '4');
+                            } else if (selectedOp && op.machine === selectedOp.machine) {
+                                circle.setAttribute('opacity', '1');
+                                circle.setAttribute('r', 20);
+                                circle.setAttribute('stroke-width', '2');
+                            } else if (selectedOp) {
+                                circle.setAttribute('opacity', '0.3');
+                                circle.setAttribute('r', 20);
+                                circle.setAttribute('stroke-width', '2');
+                            } else {
+                                circle.setAttribute('opacity', '1');
+                                circle.setAttribute('r', 20);
+                                circle.setAttribute('stroke-width', '2');
+                            }
+                        });
+                    }
+
+                    container.appendChild(svg);
+                })();
+                </script>
+            </div>
+
+            <h3>Quick Definition</h3>
+            <p>A system is sequentially consistent if:</p>
+            <ul>
+                <li>All machines see operations in the same total order</li>
+                <li>Each machine's operations appear in that total order in the same order they were programmed</li>
+            </ul>
+        </section>
+
+        <section id="why-sequential-consistency-matters">
+            <h2>Why Sequential Consistency Matters</h2>
+
+            <p>When you have multiple machines sharing data (think distributed databases, replicated storage, or distributed shared memory), you need rules about what values a machine can read. Without consistency models, chaos ensues:</p>
+
+            <div class="callout-warning">
+                <strong>Problem:</strong> If Machine A writes X=1, then X=2, can Machine B read X=2 first, then X=1?<br>
+                <strong>Sequential Consistency says:</strong> No! If B sees any write from A, it must see all earlier writes from A in order.
+            </div>
+
+            <h3>This is critical for:</h3>
+            <ul>
+                <li>Ensuring programs behave predictably across distributed systems</li>
+                <li>Preventing weird bugs where effects happen before causes</li>
+                <li>Allowing programmers to reason about distributed code</li>
+            </ul>
+        </section>
+
+        <section id="the-two-rules">
+            <h2>The Two Rules of Sequential Consistency</h2>
+
+            <h3>Rule 1: Global Total Order</h3>
+            <div class="callout-success">
+                <strong>The result must be the same as if all machines' Load (LD) and Store (ST) instructions occurred in some total order.</strong>
+            </div>
+            <p>In plain English: You should be able to arrange all reads and writes from all machines into a single timeline that explains what everyone observed.</p>
+
+            <h3>Rule 2: Program Order Preservation</h3>
+            <div class="callout-success">
+                <strong>In this total order, LD/ST instructions executed on each individual machine must appear in the order specified by the program.</strong>
+            </div>
+            <p>In plain English: If Machine A runs <code>X=1</code> then <code>Y=2</code>, the global timeline must show <code>X=1</code> happening before <code>Y=2</code> for Machine A. You can't rearrange operations within a single machine's program.</p>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: The Two Rules</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <strong>Instructions:</strong> Use the slider to explore different valid total orderings. Note how program order is always preserved.
+                </div>
+                <div id="two-rules-viz"></div>
+                <script>
+                (function() {
+                    const container = document.getElementById('two-rules-viz');
+
+                    // Create container div
+                    const vizDiv = document.createElement('div');
+                    vizDiv.style.maxWidth = '900px';
+                    vizDiv.style.margin = '0 auto';
+
+                    // Slider controls
+                    const controls = document.createElement('div');
+                    controls.style.textAlign = 'center';
+                    controls.style.marginBottom = '2rem';
+                    controls.innerHTML = `
+                        <label style="font-weight: bold; margin-right: 1rem;">Select Total Ordering:</label>
+                        <input type="range" id="ordering-slider" min="0" max="2" value="0" step="1" style="width: 300px; vertical-align: middle;">
+                        <span id="ordering-label" style="margin-left: 1rem; font-weight: bold; color: var(--secondary-color);">Ordering 1</span>
+                    `;
+                    vizDiv.appendChild(controls);
+
+                    // SVG container
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('width', '900');
+                    svg.setAttribute('height', '450');
+                    svg.style.display = 'block';
+
+                    // Define three valid orderings
+                    const orderings = [
+                        {
+                            name: 'Ordering 1',
+                            order: ['M1:A', 'M1:B', 'M1:C', 'M2:X', 'M2:Y', 'M2:Z'],
+                            description: 'All M1 operations before all M2 operations'
+                        },
+                        {
+                            name: 'Ordering 2',
+                            order: ['M2:X', 'M2:Y', 'M2:Z', 'M1:A', 'M1:B', 'M1:C'],
+                            description: 'All M2 operations before all M1 operations'
+                        },
+                        {
+                            name: 'Ordering 3',
+                            order: ['M1:A', 'M2:X', 'M1:B', 'M2:Y', 'M1:C', 'M2:Z'],
+                            description: 'Interleaved, but program order preserved'
+                        }
+                    ];
+
+                    let currentOrdering = 0;
+
+                    function drawVisualization() {
+                        // Clear SVG
+                        while (svg.firstChild) {
+                            svg.removeChild(svg.firstChild);
+                        }
+
+                        const ordering = orderings[currentOrdering];
+
+                        // Title
+                        const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        title.setAttribute('x', '450');
+                        title.setAttribute('y', '30');
+                        title.setAttribute('text-anchor', 'middle');
+                        title.setAttribute('font-size', '18');
+                        title.setAttribute('font-weight', 'bold');
+                        title.setAttribute('fill', '#2c3e50');
+                        title.textContent = ordering.name;
+                        svg.appendChild(title);
+
+                        // Description
+                        const desc = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        desc.setAttribute('x', '450');
+                        desc.setAttribute('y', '55');
+                        desc.setAttribute('text-anchor', 'middle');
+                        desc.setAttribute('font-size', '14');
+                        desc.setAttribute('fill', '#7f8c8d');
+                        desc.textContent = ordering.description;
+                        svg.appendChild(desc);
+
+                        // Rule labels
+                        const rule1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        rule1.setAttribute('x', '225');
+                        rule1.setAttribute('y', '90');
+                        rule1.setAttribute('text-anchor', 'middle');
+                        rule1.setAttribute('font-size', '14');
+                        rule1.setAttribute('font-weight', 'bold');
+                        rule1.setAttribute('fill', '#27ae60');
+                        rule1.textContent = 'Rule 1: Total Order Exists';
+                        svg.appendChild(rule1);
+
+                        const rule2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        rule2.setAttribute('x', '675');
+                        rule2.setAttribute('y', '90');
+                        rule2.setAttribute('text-anchor', 'middle');
+                        rule2.setAttribute('font-size', '14');
+                        rule2.setAttribute('font-weight', 'bold');
+                        rule2.setAttribute('fill', '#3498db');
+                        rule2.textContent = 'Rule 2: Program Order Preserved';
+                        svg.appendChild(rule2);
+
+                        // Left side: Total order timeline
+                        const startX = 50;
+                        const endX = 400;
+                        const timelineY = 250;
+
+                        const timeline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        timeline.setAttribute('x1', startX);
+                        timeline.setAttribute('y1', timelineY);
+                        timeline.setAttribute('x2', endX);
+                        timeline.setAttribute('y2', timelineY);
+                        timeline.setAttribute('stroke', '#2c3e50');
+                        timeline.setAttribute('stroke-width', '3');
+                        svg.appendChild(timeline);
+
+                        // Arrow
+                        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        arrow.setAttribute('points', `${endX},${timelineY} ${endX-10},${timelineY-5} ${endX-10},${timelineY+5}`);
+                        arrow.setAttribute('fill', '#2c3e50');
+                        svg.appendChild(arrow);
+
+                        // Operations on timeline
+                        ordering.order.forEach((op, idx) => {
+                            const x = startX + (endX - startX) * (idx / (ordering.order.length - 1));
+                            const [machine, opName] = op.split(':');
+                            const color = machine === 'M1' ? '#3498db' : '#e74c3c';
+
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', x);
+                            circle.setAttribute('cy', timelineY);
+                            circle.setAttribute('r', '20');
+                            circle.setAttribute('fill', color);
+                            circle.setAttribute('stroke', '#2c3e50');
+                            circle.setAttribute('stroke-width', '2');
+                            svg.appendChild(circle);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', timelineY + 6);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('font-size', '14');
+                            text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('fill', 'white');
+                            text.textContent = opName;
+                            svg.appendChild(text);
+
+                            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            label.setAttribute('x', x);
+                            label.setAttribute('y', timelineY + 40);
+                            label.setAttribute('text-anchor', 'middle');
+                            label.setAttribute('font-size', '11');
+                            label.setAttribute('fill', '#2c3e50');
+                            label.textContent = machine;
+                            svg.appendChild(label);
+                        });
+
+                        // Right side: Program order constraints
+                        const rightX = 500;
+                        const m1Y = 150;
+                        const m2Y = 320;
+
+                        // M1 program order
+                        const m1Label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        m1Label.setAttribute('x', rightX);
+                        m1Label.setAttribute('y', m1Y - 20);
+                        m1Label.setAttribute('font-size', '16');
+                        m1Label.setAttribute('font-weight', 'bold');
+                        m1Label.setAttribute('fill', '#3498db');
+                        m1Label.textContent = 'Machine M1:';
+                        svg.appendChild(m1Label);
+
+                        ['A', 'B', 'C'].forEach((op, idx) => {
+                            const x = rightX + 100 + idx * 80;
+
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', x);
+                            circle.setAttribute('cy', m1Y);
+                            circle.setAttribute('r', '20');
+                            circle.setAttribute('fill', '#3498db');
+                            circle.setAttribute('stroke', '#2c3e50');
+                            circle.setAttribute('stroke-width', '2');
+                            svg.appendChild(circle);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', m1Y + 6);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('font-size', '14');
+                            text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('fill', 'white');
+                            text.textContent = op;
+                            svg.appendChild(text);
+
+                            // Arrow to next
+                            if (idx < 2) {
+                                const arrowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                                arrowLine.setAttribute('x1', x + 20);
+                                arrowLine.setAttribute('y1', m1Y);
+                                arrowLine.setAttribute('x2', x + 60);
+                                arrowLine.setAttribute('y2', m1Y);
+                                arrowLine.setAttribute('stroke', '#3498db');
+                                arrowLine.setAttribute('stroke-width', '3');
+                                arrowLine.setAttribute('marker-end', 'url(#arrow-m1)');
+                                svg.appendChild(arrowLine);
+                            }
+                        });
+
+                        // M2 program order
+                        const m2Label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        m2Label.setAttribute('x', rightX);
+                        m2Label.setAttribute('y', m2Y - 20);
+                        m2Label.setAttribute('font-size', '16');
+                        m2Label.setAttribute('font-weight', 'bold');
+                        m2Label.setAttribute('fill', '#e74c3c');
+                        m2Label.textContent = 'Machine M2:';
+                        svg.appendChild(m2Label);
+
+                        ['X', 'Y', 'Z'].forEach((op, idx) => {
+                            const x = rightX + 100 + idx * 80;
+
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', x);
+                            circle.setAttribute('cy', m2Y);
+                            circle.setAttribute('r', '20');
+                            circle.setAttribute('fill', '#e74c3c');
+                            circle.setAttribute('stroke', '#2c3e50');
+                            circle.setAttribute('stroke-width', '2');
+                            svg.appendChild(circle);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', m2Y + 6);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('font-size', '14');
+                            text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('fill', 'white');
+                            text.textContent = op;
+                            svg.appendChild(text);
+
+                            // Arrow to next
+                            if (idx < 2) {
+                                const arrowLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                                arrowLine.setAttribute('x1', x + 20);
+                                arrowLine.setAttribute('y1', m2Y);
+                                arrowLine.setAttribute('x2', x + 60);
+                                arrowLine.setAttribute('y2', m2Y);
+                                arrowLine.setAttribute('stroke', '#e74c3c');
+                                arrowLine.setAttribute('stroke-width', '3');
+                                arrowLine.setAttribute('marker-end', 'url(#arrow-m2)');
+                                svg.appendChild(arrowLine);
+                            }
+                        });
+
+                        // Define arrow markers
+                        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+
+                        const marker1 = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker1.setAttribute('id', 'arrow-m1');
+                        marker1.setAttribute('markerWidth', '10');
+                        marker1.setAttribute('markerHeight', '10');
+                        marker1.setAttribute('refX', '9');
+                        marker1.setAttribute('refY', '3');
+                        marker1.setAttribute('orient', 'auto');
+                        const poly1 = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        poly1.setAttribute('points', '0 0, 10 3, 0 6');
+                        poly1.setAttribute('fill', '#3498db');
+                        marker1.appendChild(poly1);
+                        defs.appendChild(marker1);
+
+                        const marker2 = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker2.setAttribute('id', 'arrow-m2');
+                        marker2.setAttribute('markerWidth', '10');
+                        marker2.setAttribute('markerHeight', '10');
+                        marker2.setAttribute('refX', '9');
+                        marker2.setAttribute('refY', '3');
+                        marker2.setAttribute('orient', 'auto');
+                        const poly2 = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        poly2.setAttribute('points', '0 0, 10 3, 0 6');
+                        poly2.setAttribute('fill', '#e74c3c');
+                        marker2.appendChild(poly2);
+                        defs.appendChild(marker2);
+
+                        svg.insertBefore(defs, svg.firstChild);
+
+                        // Validation check mark
+                        const checkMark = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        checkMark.setAttribute('x', '450');
+                        checkMark.setAttribute('y', '420');
+                        checkMark.setAttribute('text-anchor', 'middle');
+                        checkMark.setAttribute('font-size', '20');
+                        checkMark.setAttribute('fill', '#27ae60');
+                        checkMark.textContent = '✓ Valid Ordering (Both Rules Satisfied)';
+                        svg.appendChild(checkMark);
+                    }
+
+                    const slider = controls.querySelector('#ordering-slider');
+                    const label = controls.querySelector('#ordering-label');
+
+                    slider.addEventListener('input', (e) => {
+                        currentOrdering = parseInt(e.target.value);
+                        label.textContent = orderings[currentOrdering].name;
+                        drawVisualization();
+                    });
+
+                    vizDiv.appendChild(svg);
+                    container.appendChild(vizDiv);
+
+                    drawVisualization();
+                })();
+                </script>
+            </div>
+
+            <h3>Memory Aid: "STPO"</h3>
+            <ul>
+                <li><strong>S</strong>ome <strong>T</strong>otal order exists</li>
+                <li><strong>P</strong>rogram <strong>O</strong>rder preserved</li>
+            </ul>
+        </section>
+
+        <section id="real-world-analogy">
+            <h2>Real-World Analogy</h2>
+
+            <p>Imagine a classroom where students (machines) are posting sticky notes (writes) on a shared whiteboard (shared memory) and reading them (reads).</p>
+
+            <h3>Strict Consistency (Too Hard!)</h3>
+            <p>Every sticky note has a precise timestamp down to the nanosecond, and everyone must see them in exact chronological order. This requires perfect synchronization - impossible in practice!</p>
+
+            <h3>Sequential Consistency (Practical!)</h3>
+            <p>We just need everyone to agree on which sticky note was posted "before" another, as long as:</p>
+            <ol>
+                <li>If Alice posts note A then note B, everyone sees A before B</li>
+                <li>If Bob posts note C then note D, everyone sees C before D</li>
+                <li>Everyone agrees on one story about the order (even if it's not real-time)</li>
+            </ol>
+
+            <p>So Alice might post A, then Bob posts C, then Alice posts B, then Bob posts D. The real-time order might be A-C-B-D, but as long as everyone agrees on one ordering that preserves Alice's A→B and Bob's C→D, we're good! The agreed order could even be A-B-C-D or C-D-A-B, as long as it's consistent.</p>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Sticky Notes Analogy</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <strong>Instructions:</strong> Watch the animation showing different valid orderings. Notice how Alice's notes (A→B) and Bob's notes (C→D) stay in order.
+                </div>
+                <div id="sticky-notes-viz"></div>
+                <script>
+                (function() {
+                    const container = document.getElementById('sticky-notes-viz');
+                    const width = 900;
+                    const height = 400;
+
+                    const vizDiv = document.createElement('div');
+                    vizDiv.style.maxWidth = '900px';
+                    vizDiv.style.margin = '0 auto';
+
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('width', width);
+                    svg.setAttribute('height', height);
+                    svg.style.display = 'block';
+
+                    const orderings = [
+                        { name: 'Real-time order', order: ['A', 'C', 'B', 'D'], valid: true },
+                        { name: 'Alice first', order: ['A', 'B', 'C', 'D'], valid: true },
+                        { name: 'Bob first', order: ['C', 'D', 'A', 'B'], valid: true },
+                        { name: 'Interleaved', order: ['A', 'C', 'D', 'B'], valid: false }
+                    ];
+
+                    let currentIndex = 0;
+
+                    function drawWhiteboard() {
+                        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+                        const ordering = orderings[currentIndex];
+
+                        // Title
+                        const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        title.setAttribute('x', width / 2);
+                        title.setAttribute('y', 30);
+                        title.setAttribute('text-anchor', 'middle');
+                        title.setAttribute('font-size', '20');
+                        title.setAttribute('font-weight', 'bold');
+                        title.setAttribute('fill', '#2c3e50');
+                        title.textContent = ordering.name;
+                        svg.appendChild(title);
+
+                        // Whiteboard
+                        const board = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        board.setAttribute('x', 50);
+                        board.setAttribute('y', 60);
+                        board.setAttribute('width', 800);
+                        board.setAttribute('height', 200);
+                        board.setAttribute('fill', '#ecf0f1');
+                        board.setAttribute('stroke', '#2c3e50');
+                        board.setAttribute('stroke-width', 3);
+                        board.setAttribute('rx', 5);
+                        svg.appendChild(board);
+
+                        // Draw sticky notes
+                        const noteColors = {
+                            'A': { color: '#ffeb3b', owner: 'Alice', text: 'Note A' },
+                            'B': { color: '#ffc107', owner: 'Alice', text: 'Note B' },
+                            'C': { color: '#81c784', owner: 'Bob', text: 'Note C' },
+                            'D': { color: '#66bb6a', owner: 'Bob', text: 'Note D' }
+                        };
+
+                        ordering.order.forEach((note, idx) => {
+                            const x = 100 + idx * 180;
+                            const y = 120;
+                            const noteInfo = noteColors[note];
+
+                            // Sticky note
+                            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            rect.setAttribute('x', x);
+                            rect.setAttribute('y', y);
+                            rect.setAttribute('width', 120);
+                            rect.setAttribute('height', 100);
+                            rect.setAttribute('fill', noteInfo.color);
+                            rect.setAttribute('stroke', '#2c3e50');
+                            rect.setAttribute('stroke-width', 2);
+                            rect.setAttribute('rx', 3);
+                            svg.appendChild(rect);
+
+                            // Note text
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x + 60);
+                            text.setAttribute('y', y + 50);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('font-size', '24');
+                            text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('fill', '#2c3e50');
+                            text.textContent = noteInfo.text;
+                            svg.appendChild(text);
+
+                            // Owner
+                            const owner = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            owner.setAttribute('x', x + 60);
+                            owner.setAttribute('y', y + 80);
+                            owner.setAttribute('text-anchor', 'middle');
+                            owner.setAttribute('font-size', '14');
+                            owner.setAttribute('fill', '#555');
+                            owner.textContent = noteInfo.owner;
+                            svg.appendChild(owner);
+
+                            // Position number
+                            const pos = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            pos.setAttribute('x', x + 60);
+                            pos.setAttribute('y', y - 10);
+                            pos.setAttribute('text-anchor', 'middle');
+                            pos.setAttribute('font-size', '16');
+                            pos.setAttribute('font-weight', 'bold');
+                            pos.setAttribute('fill', '#3498db');
+                            pos.textContent = (idx + 1);
+                            svg.appendChild(pos);
+                        });
+
+                        // Legend
+                        const legendY = 290;
+                        const legend1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        legend1.setAttribute('x', 100);
+                        legend1.setAttribute('y', legendY);
+                        legend1.setAttribute('font-size', '14');
+                        legend1.setAttribute('fill', '#2c3e50');
+                        legend1.innerHTML = '<tspan font-weight="bold">Alice\'s rule:</tspan> A must come before B';
+                        svg.appendChild(legend1);
+
+                        const legend2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        legend2.setAttribute('x', 100);
+                        legend2.setAttribute('y', legendY + 25);
+                        legend2.setAttribute('font-size', '14');
+                        legend2.setAttribute('fill', '#2c3e50');
+                        legend2.innerHTML = '<tspan font-weight="bold">Bob\'s rule:</tspan> C must come before D';
+                        svg.appendChild(legend2);
+
+                        // Validation
+                        const isValid = ordering.valid;
+                        const validText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        validText.setAttribute('x', width / 2);
+                        validText.setAttribute('y', 360);
+                        validText.setAttribute('text-anchor', 'middle');
+                        validText.setAttribute('font-size', '18');
+                        validText.setAttribute('font-weight', 'bold');
+                        validText.setAttribute('fill', isValid ? '#27ae60' : '#e74c3c');
+                        validText.textContent = isValid ? '✓ Valid Sequential Ordering' : '✗ Invalid - Violates Program Order!';
+                        svg.appendChild(validText);
+
+                        if (!isValid) {
+                            const explain = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            explain.setAttribute('x', width / 2);
+                            explain.setAttribute('y', 385);
+                            explain.setAttribute('text-anchor', 'middle');
+                            explain.setAttribute('font-size', '14');
+                            explain.setAttribute('fill', '#e74c3c');
+                            explain.textContent = 'B comes before D, but Alice posted B after D in her sequence!';
+                            svg.appendChild(explain);
+                        }
+                    }
+
+                    // Animation controls
+                    const controls = document.createElement('div');
+                    controls.style.textAlign = 'center';
+                    controls.style.marginTop = '1rem';
+                    controls.innerHTML = `
+                        <button id="prev-btn" style="padding: 0.5rem 1.5rem; margin: 0.5rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Previous</button>
+                        <button id="next-btn" style="padding: 0.5rem 1.5rem; margin: 0.5rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Next</button>
+                        <div style="margin-top: 0.5rem; color: #7f8c8d;"><span id="counter">1</span> of ${orderings.length}</div>
+                    `;
+
+                    vizDiv.appendChild(svg);
+                    vizDiv.appendChild(controls);
+
+                    document.getElementById('prev-btn').onclick = () => {
+                        currentIndex = (currentIndex - 1 + orderings.length) % orderings.length;
+                        drawWhiteboard();
+                        document.getElementById('counter').textContent = currentIndex + 1;
+                    };
+
+                    document.getElementById('next-btn').onclick = () => {
+                        currentIndex = (currentIndex + 1) % orderings.length;
+                        drawWhiteboard();
+                        document.getElementById('counter').textContent = currentIndex + 1;
+                    };
+
+                    container.appendChild(vizDiv);
+                    drawWhiteboard();
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="sequential-vs-strict">
+            <h2>Sequential vs Strict Consistency</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>Strict Consistency</th>
+                        <th>Sequential Consistency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Timestamp</strong></td>
+                        <td>Requires global clock</td>
+                        <td>No global clock needed</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Real-time</strong></td>
+                        <td>Operations reflect real-time order</td>
+                        <td>Operations can be reordered across machines</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Implementation</strong></td>
+                        <td>Nearly impossible in practice</td>
+                        <td>Achievable (but still expensive)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Example</strong></td>
+                        <td>If X=1 happens at 10:00:01 and Y=2 at 10:00:02, everyone must see X=1 first</td>
+                        <td>X=1 and Y=2 can be seen in any order by different machines if they're concurrent</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="callout-info">
+                <h4>Key Difference</h4>
+                <strong>Strict:</strong> "What happened first in real time?"<br>
+                <strong>Sequential:</strong> "What's a valid story everyone can agree on?"
+            </div>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Strict vs Sequential Comparison</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <strong>Instructions:</strong> Compare how the same operations are handled under strict vs sequential consistency.
+                </div>
+                <div id="strict-vs-sequential-viz"></div>
+                <script>
+                (function() {
+                    const container = document.getElementById('strict-vs-sequential-viz');
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('width', '900');
+                    svg.setAttribute('height', '500');
+                    svg.style.display = 'block';
+                    svg.style.margin = '0 auto';
+
+                    // Title
+                    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    title.setAttribute('x', '450');
+                    title.setAttribute('y', '25');
+                    title.setAttribute('text-anchor', 'middle');
+                    title.setAttribute('font-size', '18');
+                    title.setAttribute('font-weight', 'bold');
+                    title.setAttribute('fill', '#2c3e50');
+                    title.textContent = 'Strict Consistency vs Sequential Consistency';
+                    svg.appendChild(title);
+
+                    // Divider line
+                    const divider = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    divider.setAttribute('x1', '450');
+                    divider.setAttribute('y1', '50');
+                    divider.setAttribute('x2', '450');
+                    divider.setAttribute('y2', '480');
+                    divider.setAttribute('stroke', '#bdc3c7');
+                    divider.setAttribute('stroke-width', '2');
+                    divider.setAttribute('stroke-dasharray', '5,5');
+                    svg.appendChild(divider);
+
+                    // Left side: Strict Consistency
+                    const strictLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    strictLabel.setAttribute('x', '225');
+                    strictLabel.setAttribute('y', '60');
+                    strictLabel.setAttribute('text-anchor', 'middle');
+                    strictLabel.setAttribute('font-size', '16');
+                    strictLabel.setAttribute('font-weight', 'bold');
+                    strictLabel.setAttribute('fill', '#e74c3c');
+                    strictLabel.textContent = 'Strict Consistency';
+                    svg.appendChild(strictLabel);
+
+                    const strictDesc = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    strictDesc.setAttribute('x', '225');
+                    strictDesc.setAttribute('y', '80');
+                    strictDesc.setAttribute('text-anchor', 'middle');
+                    strictDesc.setAttribute('font-size', '12');
+                    strictDesc.setAttribute('fill', '#7f8c8d');
+                    strictDesc.textContent = 'Must respect real-time order';
+                    svg.appendChild(strictDesc);
+
+                    // Right side: Sequential Consistency
+                    const seqLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    seqLabel.setAttribute('x', '675');
+                    seqLabel.setAttribute('y', '60');
+                    seqLabel.setAttribute('text-anchor', 'middle');
+                    seqLabel.setAttribute('font-size', '16');
+                    seqLabel.setAttribute('font-weight', 'bold');
+                    seqLabel.setAttribute('fill', '#27ae60');
+                    seqLabel.textContent = 'Sequential Consistency';
+                    svg.appendChild(seqLabel);
+
+                    const seqDesc = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    seqDesc.setAttribute('x', '675');
+                    seqDesc.setAttribute('y', '80');
+                    seqDesc.setAttribute('text-anchor', 'middle');
+                    seqDesc.setAttribute('font-size', '12');
+                    seqDesc.setAttribute('fill', '#7f8c8d');
+                    seqDesc.textContent = 'Any valid total order works';
+                    svg.appendChild(seqDesc);
+
+                    // Scenario: M1 writes X=1 at t=10:00:01, M2 writes Y=2 at t=10:00:02
+                    const scenario = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    scenario.setAttribute('x', '450');
+                    scenario.setAttribute('y', '110');
+                    scenario.setAttribute('text-anchor', 'middle');
+                    scenario.setAttribute('font-size', '13');
+                    scenario.setAttribute('font-weight', 'bold');
+                    scenario.setAttribute('fill', '#2c3e50');
+                    scenario.textContent = 'Scenario: M1 writes X=1 (t=1), M2 writes Y=2 (t=2)';
+                    svg.appendChild(scenario);
+
+                    // STRICT CONSISTENCY - Left side
+                    // Clock
+                    const clock1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    clock1.setAttribute('cx', '100');
+                    clock1.setAttribute('cy', '150');
+                    clock1.setAttribute('r', '25');
+                    clock1.setAttribute('fill', 'none');
+                    clock1.setAttribute('stroke', '#e74c3c');
+                    clock1.setAttribute('stroke-width', '2');
+                    svg.appendChild(clock1);
+
+                    const clockHand = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    clockHand.setAttribute('x1', '100');
+                    clockHand.setAttribute('y1', '150');
+                    clockHand.setAttribute('x2', '100');
+                    clockHand.setAttribute('y2', '130');
+                    clockHand.setAttribute('stroke', '#e74c3c');
+                    clockHand.setAttribute('stroke-width', '2');
+                    svg.appendChild(clockHand);
+
+                    const clockLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    clockLabel.setAttribute('x', '140');
+                    clockLabel.setAttribute('y', '155');
+                    clockLabel.setAttribute('font-size', '12');
+                    clockLabel.setAttribute('fill', '#e74c3c');
+                    clockLabel.textContent = 'Global Clock';
+                    svg.appendChild(clockLabel);
+
+                    // Strict timeline
+                    const strictTimeline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    strictTimeline.setAttribute('x1', '50');
+                    strictTimeline.setAttribute('y1', '220');
+                    strictTimeline.setAttribute('x2', '400');
+                    strictTimeline.setAttribute('y2', '220');
+                    strictTimeline.setAttribute('stroke', '#2c3e50');
+                    strictTimeline.setAttribute('stroke-width', '3');
+                    svg.appendChild(strictTimeline);
+
+                    // Operations on strict timeline (MUST be in time order)
+                    const strictOps = [
+                        { name: 'X=1', machine: 'M1', time: 1, x: 120, color: '#3498db' },
+                        { name: 'Y=2', machine: 'M2', time: 2, x: 280, color: '#e74c3c' }
+                    ];
+
+                    strictOps.forEach(op => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', op.x);
+                        circle.setAttribute('cy', '220');
+                        circle.setAttribute('r', '20');
+                        circle.setAttribute('fill', op.color);
+                        circle.setAttribute('stroke', '#2c3e50');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', op.x);
+                        text.setAttribute('y', '226');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('font-size', '11');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('fill', 'white');
+                        text.textContent = op.name;
+                        svg.appendChild(text);
+
+                        const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        timeLabel.setAttribute('x', op.x);
+                        timeLabel.setAttribute('y', '250');
+                        timeLabel.setAttribute('text-anchor', 'middle');
+                        timeLabel.setAttribute('font-size', '10');
+                        timeLabel.setAttribute('fill', '#2c3e50');
+                        timeLabel.textContent = `t=${op.time}`;
+                        svg.appendChild(timeLabel);
+                    });
+
+                    // Strict constraint
+                    const strictConstraint = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    strictConstraint.setAttribute('x', '225');
+                    strictConstraint.setAttribute('y', '290');
+                    strictConstraint.setAttribute('text-anchor', 'middle');
+                    strictConstraint.setAttribute('font-size', '12');
+                    strictConstraint.setAttribute('fill', '#e74c3c');
+                    strictConstraint.setAttribute('font-weight', 'bold');
+                    strictConstraint.textContent = '✗ Cannot reorder!';
+                    svg.appendChild(strictConstraint);
+
+                    const strictConstraint2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    strictConstraint2.setAttribute('x', '225');
+                    strictConstraint2.setAttribute('y', '310');
+                    strictConstraint2.setAttribute('text-anchor', 'middle');
+                    strictConstraint2.setAttribute('font-size', '11');
+                    strictConstraint2.setAttribute('fill', '#7f8c8d');
+                    strictConstraint2.textContent = 'X=1 must come before Y=2';
+                    svg.appendChild(strictConstraint2);
+
+                    // Invalid attempt
+                    const invalidLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    invalidLabel.setAttribute('x', '225');
+                    invalidLabel.setAttribute('y', '350');
+                    invalidLabel.setAttribute('text-anchor', 'middle');
+                    invalidLabel.setAttribute('font-size', '12');
+                    invalidLabel.setAttribute('font-weight', 'bold');
+                    invalidLabel.setAttribute('fill', '#2c3e50');
+                    invalidLabel.textContent = 'Invalid ordering:';
+                    svg.appendChild(invalidLabel);
+
+                    // Invalid timeline
+                    const invalidOps = [
+                        { name: 'Y=2', x: 120, color: '#e74c3c' },
+                        { name: 'X=1', x: 280, color: '#3498db' }
+                    ];
+
+                    invalidOps.forEach(op => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', op.x);
+                        circle.setAttribute('cy', '380');
+                        circle.setAttribute('r', '18');
+                        circle.setAttribute('fill', op.color);
+                        circle.setAttribute('stroke', '#e74c3c');
+                        circle.setAttribute('stroke-width', '3');
+                        circle.setAttribute('opacity', '0.5');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', op.x);
+                        text.setAttribute('y', '385');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('font-size', '10');
+                        text.setAttribute('fill', 'white');
+                        text.textContent = op.name;
+                        svg.appendChild(text);
+                    });
+
+                    const cross = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    cross.setAttribute('x', '200');
+                    cross.setAttribute('y', '390');
+                    cross.setAttribute('font-size', '40');
+                    cross.setAttribute('fill', '#e74c3c');
+                    cross.textContent = '✗';
+                    svg.appendChild(cross);
+
+                    // SEQUENTIAL CONSISTENCY - Right side
+                    const seqTimeline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    seqTimeline.setAttribute('x1', '500');
+                    seqTimeline.setAttribute('y1', '180');
+                    seqTimeline.setAttribute('x2', '850');
+                    seqTimeline.setAttribute('y2', '180');
+                    seqTimeline.setAttribute('stroke', '#2c3e50');
+                    seqTimeline.setAttribute('stroke-width', '3');
+                    svg.appendChild(seqTimeline);
+
+                    const validLabel1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    validLabel1.setAttribute('x', '675');
+                    validLabel1.setAttribute('y', '155');
+                    validLabel1.setAttribute('text-anchor', 'middle');
+                    validLabel1.setAttribute('font-size', '12');
+                    validLabel1.setAttribute('font-weight', 'bold');
+                    validLabel1.setAttribute('fill', '#27ae60');
+                    validLabel1.textContent = '✓ Valid ordering 1:';
+                    svg.appendChild(validLabel1);
+
+                    // Valid ordering 1
+                    [
+                        { name: 'X=1', x: 570, color: '#3498db' },
+                        { name: 'Y=2', x: 730, color: '#e74c3c' }
+                    ].forEach(op => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', op.x);
+                        circle.setAttribute('cy', '180');
+                        circle.setAttribute('r', '20');
+                        circle.setAttribute('fill', op.color);
+                        circle.setAttribute('stroke', '#27ae60');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', op.x);
+                        text.setAttribute('y', '186');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('font-size', '11');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('fill', 'white');
+                        text.textContent = op.name;
+                        svg.appendChild(text);
+                    });
+
+                    // Valid ordering 2
+                    const seqTimeline2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    seqTimeline2.setAttribute('x1', '500');
+                    seqTimeline2.setAttribute('y1', '280');
+                    seqTimeline2.setAttribute('x2', '850');
+                    seqTimeline2.setAttribute('y2', '280');
+                    seqTimeline2.setAttribute('stroke', '#2c3e50');
+                    seqTimeline2.setAttribute('stroke-width', '3');
+                    svg.appendChild(seqTimeline2);
+
+                    const validLabel2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    validLabel2.setAttribute('x', '675');
+                    validLabel2.setAttribute('y', '255');
+                    validLabel2.setAttribute('text-anchor', 'middle');
+                    validLabel2.setAttribute('font-size', '12');
+                    validLabel2.setAttribute('font-weight', 'bold');
+                    validLabel2.setAttribute('fill', '#27ae60');
+                    validLabel2.textContent = '✓ Valid ordering 2:';
+                    svg.appendChild(validLabel2);
+
+                    [
+                        { name: 'Y=2', x: 570, color: '#e74c3c' },
+                        { name: 'X=1', x: 730, color: '#3498db' }
+                    ].forEach(op => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', op.x);
+                        circle.setAttribute('cy', '280');
+                        circle.setAttribute('r', '20');
+                        circle.setAttribute('fill', op.color);
+                        circle.setAttribute('stroke', '#27ae60');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', op.x);
+                        text.setAttribute('y', '286');
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('font-size', '11');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('fill', 'white');
+                        text.textContent = op.name;
+                        svg.appendChild(text);
+                    });
+
+                    const seqNote = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    seqNote.setAttribute('x', '675');
+                    seqNote.setAttribute('y', '330');
+                    seqNote.setAttribute('text-anchor', 'middle');
+                    seqNote.setAttribute('font-size', '12');
+                    seqNote.setAttribute('fill', '#27ae60');
+                    seqNote.setAttribute('font-weight', 'bold');
+                    seqNote.textContent = 'Both orderings are valid!';
+                    svg.appendChild(seqNote);
+
+                    const seqNote2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    seqNote2.setAttribute('x', '675');
+                    seqNote2.setAttribute('y', '350');
+                    seqNote2.setAttribute('text-anchor', 'middle');
+                    seqNote2.setAttribute('font-size', '11');
+                    seqNote2.setAttribute('fill', '#7f8c8d');
+                    seqNote2.textContent = 'No program order constraint between';
+                    svg.appendChild(seqNote2);
+
+                    const seqNote3 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    seqNote3.setAttribute('x', '675');
+                    seqNote3.setAttribute('y', '365');
+                    seqNote3.setAttribute('text-anchor', 'middle');
+                    seqNote3.setAttribute('font-size', '11');
+                    seqNote3.setAttribute('fill', '#7f8c8d');
+                    seqNote3.textContent = 'operations on different machines';
+                    svg.appendChild(seqNote3);
+
+                    // Summary
+                    const summary = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    summary.setAttribute('x', '450');
+                    summary.setAttribute('y', '450');
+                    summary.setAttribute('text-anchor', 'middle');
+                    summary.setAttribute('font-size', '14');
+                    summary.setAttribute('font-weight', 'bold');
+                    summary.setAttribute('fill', '#2c3e50');
+                    summary.textContent = 'Key Difference: Strict requires real-time order, Sequential only needs a consistent story';
+                    svg.appendChild(summary);
+
+                    container.appendChild(svg);
+                })();
+                </script>
+            </div>
+        </section>
+
+        <section id="working-through-examples">
+            <h2>Working Through Examples</h2>
+
+            <h3>Example 1: Basic Sequential Consistency</h3>
+
+            <div class="callout-info">
+                <strong>Setup:</strong> Two variables X and Y (both start at 0)
+                <ul>
+                    <li>Machine M1: <code>X = 1</code></li>
+                    <li>Machine M2: <code>Y = 2</code></li>
+                    <li>Machine M3: reads X then reads Y</li>
+                    <li>Machine M4: reads Y then reads X</li>
+                </ul>
+                <strong>Question:</strong> Can M3 read X=1, Y=0 and M4 read Y=2, X=0?
+            </div>
+
+            <p><strong>Answer: NO, this is NOT allowed!</strong></p>
+
+            <p><strong>Correct reasoning:</strong></p>
+            <ul>
+                <li>If M3 reads X=1, then in the total order, M1's write must come before M3's read of X</li>
+                <li>If M4 reads X=0, then in the total order, M4's read of X must come before M1's write</li>
+                <li>This creates a contradiction: M1's write must be both before M3's read AND after M4's read</li>
+                <li>Not possible!</li>
+            </ul>
+
+            <h3>Example 2: The Pipeline Problem</h3>
+
+            <p>From the lecture:</p>
+            <pre><code>M0: v0 = f0(); done0 = 1;
+M1: while(done0 == 0); v1 = f1(v0); done1 = 1;
+M2: while(done1 == 0); v2 = f2(v0, v1);</code></pre>
+
+            <p><strong>Question:</strong> Will this work with sequential consistency?</p>
+
+            <p><strong>Analysis:</strong></p>
+            <ul>
+                <li>M1 spins until it sees done0=1, then it can safely read v0</li>
+                <li>M2 spins until it sees done1=1, then it can safely read v0 and v1</li>
+                <li>Rule 2 ensures M0's writes happen in order (v0 before done0)</li>
+                <li>When M1 sees done0=1, it must see v0 (by Rule 1)</li>
+                <li>Same logic for M2</li>
+            </ul>
+
+            <p><strong>Answer:</strong> Yes! Sequential consistency guarantees this works.</p>
+
+            <div class="visualization-container" style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Pipeline Synchronization</h3>
+                <div style="margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <strong>Instructions:</strong> Click "Next Step" to see how the pipeline executes with sequential consistency guarantees.
+                </div>
+                <div id="pipeline-viz" style="min-height: 400px;"></div>
+                <script>
+                (function() {
+                    const container = document.getElementById('pipeline-viz');
+                    let step = 0;
+                    const maxSteps = 8;
+
+                    const memory = { v0: 0, v1: 0, done0: 0, done1: 0 };
+                    const steps = [
+                        { desc: 'Initial state: All values are 0', updates: {} },
+                        { desc: 'M0: v0 = f0() → v0 = 42', updates: { v0: 42 } },
+                        { desc: 'M0: done0 = 1 → Flag set!', updates: { done0: 1 } },
+                        { desc: 'M1: Sees done0=1, reads v0=42', updates: {} },
+                        { desc: 'M1: v1 = f1(v0) → v1 = 84', updates: { v1: 84 } },
+                        { desc: 'M1: done1 = 1 → Flag set!', updates: { done1: 1 } },
+                        { desc: 'M2: Sees done1=1, reads v0=42, v1=84', updates: {} },
+                        { desc: 'M2: v2 = f2(v0, v1) → Complete!', updates: {} }
+                    ];
+
+                    function render() {
+                        Object.assign(memory, steps[step].updates);
+
+                        container.innerHTML = `
+                            <div style="text-align: center; margin-bottom: 2rem;">
+                                <div style="font-size: 16px; font-weight: bold; color: var(--primary-color); margin-bottom: 1rem;">
+                                    Step ${step + 1} of ${maxSteps}: ${steps[step].desc}
+                                </div>
+                                <div style="display: flex; justify-content: center; gap: 3rem; margin: 2rem 0; flex-wrap: wrap;">
+                                    <div style="text-align: center;">
+                                        <div style="font-weight: bold; color: #3498db; margin-bottom: 0.5rem;">M0</div>
+                                        <div style="padding: 1rem; background: ${step >= 1 && step <= 2 ? '#ffffcc' : '#f8f9fa'}; border: 2px solid #3498db; border-radius: 8px;">
+                                            <div>v0 = f0();</div>
+                                            <div>done0 = 1;</div>
+                                        </div>
+                                        ${step === 2 ? '<div style="margin-top: 0.5rem; color: #27ae60; font-weight: bold;">Done</div>' : ''}
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-weight: bold; color: #e74c3c; margin-bottom: 0.5rem;">M1</div>
+                                        <div style="padding: 1rem; background: ${step >= 3 && step <= 5 ? '#ffffcc' : '#f8f9fa'}; border: 2px solid #e74c3c; border-radius: 8px;">
+                                            <div>while(done0==0);</div>
+                                            <div>v1 = f1(v0);</div>
+                                            <div>done1 = 1;</div>
+                                        </div>
+                                        ${step === 3 ? '<div style="margin-top: 0.5rem; color: #f39c12; font-weight: bold;">Waiting...</div>' : ''}
+                                        ${step === 5 ? '<div style="margin-top: 0.5rem; color: #27ae60; font-weight: bold;">Done</div>' : ''}
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-weight: bold; color: #27ae60; margin-bottom: 0.5rem;">M2</div>
+                                        <div style="padding: 1rem; background: ${step >= 6 ? '#ffffcc' : '#f8f9fa'}; border: 2px solid #27ae60; border-radius: 8px;">
+                                            <div>while(done1==0);</div>
+                                            <div>v2 = f2(v0,v1);</div>
+                                        </div>
+                                        ${step === 6 ? '<div style="margin-top: 0.5rem; color: #f39c12; font-weight: bold;">Waiting...</div>' : ''}
+                                        ${step === 7 ? '<div style="margin-top: 0.5rem; color: #27ae60; font-weight: bold;">Done</div>' : ''}
+                                    </div>
+                                </div>
+                                <div style="background: #ecf0f1; padding: 1.5rem; border-radius: 8px; margin: 2rem 0;">
+                                    <div style="font-weight: bold; margin-bottom: 1rem; color: #2c3e50;">Shared Memory:</div>
+                                    <div style="display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;">
+                                        <div style="padding: 0.5rem 1rem; background: white; border: 2px solid ${memory.v0 ? '#27ae60' : '#bdc3c7'}; border-radius: 5px;">
+                                            <strong>v0:</strong> ${memory.v0}
+                                        </div>
+                                        <div style="padding: 0.5rem 1rem; background: white; border: 2px solid ${memory.v1 ? '#27ae60' : '#bdc3c7'}; border-radius: 5px;">
+                                            <strong>v1:</strong> ${memory.v1}
+                                        </div>
+                                        <div style="padding: 0.5rem 1rem; background: white; border: 2px solid ${memory.done0 ? '#27ae60' : '#bdc3c7'}; border-radius: 5px;">
+                                            <strong>done0:</strong> ${memory.done0}
+                                        </div>
+                                        <div style="padding: 0.5rem 1rem; background: white; border: 2px solid ${memory.done1 ? '#27ae60' : '#bdc3c7'}; border-radius: 5px;">
+                                            <strong>done1:</strong> ${memory.done1}
+                                        </div>
+                                    </div>
+                                </div>
+                                ${step === 2 ? `<div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px; margin: 1rem 0; text-align: left;">
+                                    <strong>SC Guarantee:</strong> Since done0 is written AFTER v0 (program order), when M1 sees done0=1, it MUST see v0=42!
+                                </div>` : ''}
+                                ${step === 5 ? `<div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px; margin: 1rem 0; text-align: left;">
+                                    <strong>SC Guarantee:</strong> Since done1 is written AFTER v1 (program order), when M2 sees done1=1, it MUST see v1=84!
+                                </div>` : ''}
+                                <div style="margin-top: 2rem;">
+                                    <button id="prev-btn" ${step === 0 ? 'disabled' : ''} style="padding: 0.5rem 1.5rem; margin: 0.5rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: ${step === 0 ? 'not-allowed' : 'pointer'}; opacity: ${step === 0 ? '0.5' : '1'};">Previous</button>
+                                    <button id="next-btn" ${step === maxSteps - 1 ? 'disabled' : ''} style="padding: 0.5rem 1.5rem; margin: 0.5rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: ${step === maxSteps - 1 ? 'not-allowed' : 'pointer'}; opacity: ${step === maxSteps - 1 ? '0.5' : '1'};">Next Step</button>
+                                    <button id="reset-btn" style="padding: 0.5rem 1.5rem; margin: 0.5rem; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer;">Reset</button>
+                                </div>
+                            </div>
+                        `;
+
+                        const prevBtn = document.getElementById('prev-btn');
+                        const nextBtn = document.getElementById('next-btn');
+                        const resetBtn = document.getElementById('reset-btn');
+
+                        if (prevBtn) prevBtn.onclick = () => { if (step > 0) { step--; render(); } };
+                        if (nextBtn) nextBtn.onclick = () => { if (step < maxSteps - 1) { step++; render(); } };
+                        if (resetBtn) resetBtn.onclick = () => { step = 0; Object.assign(memory, { v0: 0, v1: 0, done0: 0, done1: 0 }); render(); };
+                    }
+
+                    render();
+                })();
+                </script>
+            </div>
+
+            <h3>Example 3: The Tricky Case (From iClicker)</h3>
+
+            <div class="callout-warning">
+                <strong>Setup:</strong> X and Y both start at 0
+                <ul>
+                    <li>M1: <code>X = 1</code></li>
+                    <li>M2: <code>Y = 2</code></li>
+                    <li>M3: reads X=1, then Y=0</li>
+                    <li>M4: reads X=0, then Y=2</li>
+                </ul>
+                <strong>Question:</strong> Is this allowed in sequential consistency?
+            </div>
+
+            <p><strong>Answer: YES, this IS allowed!</strong></p>
+
+            <p>The total order would be:</p>
+            <ol>
+                <li>M4: read X (gets 0)</li>
+                <li>M1: X = 1</li>
+                <li>M3: read X (gets 1)</li>
+                <li>M3: read Y (gets 0)</li>
+                <li>M2: Y = 2</li>
+                <li>M4: read Y (gets 2)</li>
+            </ol>
+
+            <p><strong>Checking program orders:</strong></p>
+            <ul>
+                <li>M1: just X=1 ✓</li>
+                <li>M2: just Y=2 ✓</li>
+                <li>M3: read X before read Y ✓</li>
+                <li>M4: read X before read Y ✓</li>
+            </ul>
+
+            <p>All program orders are preserved!</p>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Example 3 Timeline</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive timeline showing the 6 operations from Example 3. Display each machine's view of memory (X and Y values) at each step. Allow users to drag operations to try different orderings and see if they violate sequential consistency (with real-time validation feedback). Highlight program order constraints with colored connecting arrows that cannot be violated. Show why this particular ordering is valid by checking off each rule as it's satisfied.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="how-to-check">
+            <h2>How to Check Sequential Consistency</h2>
+
+            <h3>Step-by-Step Method</h3>
+
+            <p><strong>When given a scenario with operations and results:</strong></p>
+
+            <ol>
+                <li><strong>List all operations</strong> from all machines with what they read/wrote</li>
+                <li><strong>Try to construct a total order</strong> that:
+                    <ul>
+                        <li>Explains all the values that were read</li>
+                        <li>Preserves program order for each machine</li>
+                    </ul>
+                </li>
+                <li><strong>If you can build such an order:</strong> Sequential consistency is satisfied</li>
+                <li><strong>If you find a contradiction:</strong> Sequential consistency is violated</li>
+            </ol>
+
+            <h3>Key Questions to Ask</h3>
+            <ul>
+                <li>Can I draw a timeline where all observations make sense?</li>
+                <li>Does this timeline preserve each machine's program order?</li>
+                <li>Are there any "time travel" paradoxes? (Effect before cause)</li>
+            </ul>
+
+            <div class="callout-warning">
+                <h4>Common Contradiction Pattern</h4>
+                <p>If you see:</p>
+                <ul>
+                    <li>Machine A reads new value, then old value of same variable</li>
+                    <li>This violates sequential consistency!</li>
+                </ul>
+                <p><strong>Why?</strong> Once a value is written in the total order, all later reads must see that value or a newer one.</p>
+            </div>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Sequential Consistency Checker</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive tool where users can input a scenario (machines, operations, observed values) and the tool attempts to find a valid total ordering. Show the constraint graph with nodes for each operation and edges for ordering constraints (program order and read-write dependencies). Use a graph layout algorithm to visualize the constraints, highlighting cycles in red (violations) and valid topological orderings in green. Include a step-by-step solver that explains the reasoning for each constraint.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="common-pitfalls">
+            <h2>Common Pitfalls and Tricks</h2>
+
+            <h3>Pitfall 1: Assuming Real-Time Order</h3>
+            <p><span style="color: red;">❌ Wrong thinking:</span> "M1 wrote X=1 first (in real time), so everyone must see it first"</p>
+            <p><span style="color: green;">✓ Right thinking:</span> "Real time doesn't matter, only that there exists SOME valid total order"</p>
+
+            <h3>Pitfall 2: Forgetting Program Order</h3>
+            <p><span style="color: red;">❌ Wrong thinking:</span> "These operations on M1 can be reordered in the total order"</p>
+            <p><span style="color: green;">✓ Right thinking:</span> "Operations within M1 must stay in the order M1's program specified"</p>
+
+            <h3>Pitfall 3: Concurrent Writes</h3>
+            <div class="callout-info">
+                <p><strong>Scenario:</strong> M1 writes X=1 and M2 writes X=2 concurrently</p>
+                <p><strong>Tricky part:</strong> Different machines can see these in different orders!</p>
+                <ul>
+                    <li>M3 might see X=1 then X=2</li>
+                    <li>M4 might see X=2 then X=1</li>
+                    <li>But once M3 sees X=2, it can't later see X=1 (would violate total order)</li>
+                </ul>
+            </div>
+
+            <h3>Pitfall 4: Synchronization Variables</h3>
+            <div class="callout-success">
+                <p><strong>Pattern:</strong> Using flags like <code>done=1</code> after writing data</p>
+                <p><strong>Key insight:</strong> Sequential consistency ensures if you see the flag, you see the data</p>
+                <p><strong>Example:</strong> <code>data=5; ready=1;</code> If another machine sees ready=1, it will see data=5</p>
+            </div>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Common Pitfalls</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create a quiz-style visualization with 4 scenarios corresponding to each pitfall. For each scenario, show an execution trace and ask users to identify whether it violates sequential consistency. Provide immediate feedback with animations showing why the answer is correct or incorrect. For Pitfall 3, show concurrent writes with a branching timeline visualization. For Pitfall 4, animate the synchronization pattern with data and flag variables updating in sequence.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="practice-problems">
+            <h2>Practice Problems</h2>
+
+            <h3>Problem 1</h3>
+            <div class="callout-info">
+                <p>Four machines M0-M3, variables X, Y, Z all start at 0:</p>
+                <ul>
+                    <li>M0: X=1, Y=1</li>
+                    <li>M1: X=2, Z=1</li>
+                    <li>M2: waits for Y=1, waits for Z=1, reads X</li>
+                    <li>M3: waits for Y=1, waits for Z=1, reads X</li>
+                </ul>
+                <p><strong>Question:</strong> Can M2 read X=1 and M3 read X=2?</p>
+            </div>
+
+            <details>
+                <summary><strong>Click for answer</strong></summary>
+                <div style="margin-top: 1rem; padding: 1rem; background-color: #f0f0f0; border-left: 4px solid #28a745;">
+                    <p><strong>YES, this is possible!</strong></p>
+                    <p>Possible total order:</p>
+                    <ol>
+                        <li>M0: X=1</li>
+                        <li>M0: Y=1</li>
+                        <li>M2: reads Y (gets 1)</li>
+                        <li>M2: reads Z (gets 1)</li>
+                        <li>M2: reads X (gets 1)</li>
+                        <li>M1: X=2</li>
+                        <li>M1: Z=1</li>
+                        <li>M3: reads Y (gets 1)</li>
+                        <li>M3: reads Z (gets 1)</li>
+                        <li>M3: reads X (gets 2)</li>
+                    </ol>
+                    <p>Wait - M3 reads Z=1, which means M1's write to Z already happened. If M1's writes are in order (X=2 then Z=1), then X should already be 2 when M3 reads it. Actually this still works!</p>
+                </div>
+            </details>
+
+            <h3>Problem 2</h3>
+            <div class="callout-info">
+                <p>Can both machines see different orders of the same two writes?</p>
+                <ul>
+                    <li>M1: X=1</li>
+                    <li>M2: X=2</li>
+                    <li>M3: reads X=1 then X=2</li>
+                    <li>M4: reads X=2 then X=1</li>
+                </ul>
+            </div>
+
+            <details>
+                <summary><strong>Click for answer</strong></summary>
+                <div style="margin-top: 1rem; padding: 1rem; background-color: #f0f0f0; border-left: 4px solid #dc3545;">
+                    <p><strong>NO!</strong> Once there's a total order, everyone must agree on it. If X=1 comes before X=2 in the total order, no one can see X=2 before X=1. That would violate the "total order" requirement.</p>
+                </div>
+            </details>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Practice Problems Interactive</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive problem-solving environment for both practice problems. For Problem 1, show the 4 machines with their operations and let users construct a timeline by dragging operations onto it. Validate in real-time whether the timeline satisfies sequential consistency. For Problem 2, show why different orderings are impossible by attempting to construct a timeline and highlighting the contradiction when M4 tries to see X=2 before X=1. Include a "hint" button that shows constraints and a "solution" button that animates the correct answer.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="memory-aids">
+            <h2>Memory Aids</h2>
+
+            <h3>The "Movie Script" Metaphor</h3>
+            <p>Sequential consistency is like multiple people watching the same movie, but:</p>
+            <ul>
+                <li>They can start watching at different times (no global clock)</li>
+                <li>Once they see scene 5, they can't later see scene 3</li>
+                <li>If the director's cut has scenes A→B, everyone sees A before B</li>
+                <li>Everyone agrees on one version of the movie (the total order)</li>
+            </ul>
+
+            <h3>Acronym: STOPS</h3>
+            <ul>
+                <li><strong>S</strong>ome total order exists</li>
+                <li><strong>T</strong>otal order explains all observations</li>
+                <li><strong>O</strong>perations within a process stay ordered</li>
+                <li><strong>P</strong>rogram order must be preserved</li>
+                <li><strong>S</strong>ystem-wide agreement on the order</li>
+            </ul>
+
+            <h3>Visual Mnemonic</h3>
+            <pre><code>M1: A → B → C
+M2: X → Y → Z
+        ↓
+Total order must exist:
+? → ? → ? → ? → ? → ?
+Where A before B before C
+And X before Y before Z</code></pre>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Memory Aid - STOPS Acronym</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive mnemonic device for STOPS. Each letter should be clickable, revealing an animated example of that principle. S shows different total orderings, T shows how the order explains observations, O shows operations within a process staying ordered, P demonstrates program order preservation with arrows, and S shows system-wide agreement with multiple machines all "agreeing" on the same timeline. Use bright colors and memorable animations for each letter.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="real-world-systems">
+            <h2>Real-World Systems</h2>
+
+            <h3>Systems Using Sequential Consistency</h3>
+
+            <div class="callout-success">
+                <h4>1. Intel x86 (TSO - Total Store Order)</h4>
+                <ul>
+                    <li>Not quite sequential consistency, but close</li>
+                    <li>Provides strong ordering guarantees for most operations</li>
+                    <li>Why: Makes programming easier, but performance cost</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>2. Database Systems</h4>
+                <ul>
+                    <li>Many distributed databases offer "serializable" isolation</li>
+                    <li>Similar to sequential consistency for transactions</li>
+                    <li>Examples: Google Spanner (in strict serializable mode)</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>3. Distributed Shared Memory Systems</h4>
+                <ul>
+                    <li>Historical systems like IVY (described in the referenced 1989 paper)</li>
+                    <li>Used in academic research and some HPC systems</li>
+                </ul>
+            </div>
+
+            <h3>Systems NOT Using Sequential Consistency</h3>
+
+            <div class="callout-warning">
+                <h4>1. Modern Weak Memory Models</h4>
+                <ul>
+                    <li>ARM processors, POWER processors</li>
+                    <li>Allow more reordering for performance</li>
+                    <li>Require explicit memory barriers</li>
+                </ul>
+            </div>
+
+            <div class="callout-warning">
+                <h4>2. Eventually Consistent Systems</h4>
+                <ul>
+                    <li>Amazon DynamoDB, Cassandra (by default)</li>
+                    <li>Weaker guarantees, but much better performance</li>
+                    <li>Trade-off: programmers must handle inconsistency</li>
+                </ul>
+            </div>
+
+            <div class="callout-warning">
+                <h4>3. Causal Consistency Systems</h4>
+                <ul>
+                    <li>Systems like COPS, Eiger</li>
+                    <li>Weaker than sequential, stronger than eventual</li>
+                    <li>Only preserve causal relationships, not all operations</li>
+                </ul>
+            </div>
+
+            <h3>Why Not Always Use Sequential Consistency?</h3>
+
+            <p><strong>Performance costs:</strong></p>
+            <ul>
+                <li>Requires coordination between machines</li>
+                <li>Can't execute many operations in parallel</li>
+                <li>Every write might need to notify all replicas</li>
+                <li>Latency increases with network distance</li>
+            </ul>
+
+            <p><strong>When it's worth it:</strong></p>
+            <ul>
+                <li>Correctness is critical</li>
+                <li>Operations are not frequent</li>
+                <li>Strong guarantees simplify programming significantly</li>
+            </ul>
+
+            <p><strong>When it's not:</strong></p>
+            <ul>
+                <li>High throughput systems (social media feeds)</li>
+                <li>Can tolerate temporary inconsistencies</li>
+                <li>Operations are mostly independent</li>
+            </ul>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Consistency Model Tradeoffs</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create an interactive scatter plot showing different consistency models (Strict, Sequential, Causal, Eventual) positioned on two axes: Performance (x-axis) and Guarantee Strength (y-axis). Make each system (Intel x86, Spanner, ARM, DynamoDB, etc.) a clickable bubble that reveals details about its consistency model, use cases, and tradeoffs. Include a slider that shows how latency and throughput change as you move from strict to eventual consistency. Use color coding for different categories (processors, databases, distributed systems).</p>
+                </div>
+            </div>
+
+            <h3>Relationship to Other Consistency Models</h3>
+
+            <h4>Hierarchy (Strongest to Weakest)</h4>
+            <ol>
+                <li><strong>Strict Consistency</strong> (Linearizability)
+                    <p>Sequential consistency + real-time constraints<br>Strongest possible model</p>
+                </li>
+                <li><strong>Sequential Consistency</strong> ← You are here
+                    <p>Total order + program order<br>Strong but achievable</p>
+                </li>
+                <li><strong>Causal Consistency</strong>
+                    <p>Only causally related operations must be ordered<br>Allows more concurrency</p>
+                </li>
+                <li><strong>Eventual Consistency</strong>
+                    <p>Eventually all replicas converge<br>No ordering guarantees in the meantime</p>
+                </li>
+            </ol>
+
+            <h4>Quick Comparison Table</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Global Order</th>
+                        <th>Real-Time</th>
+                        <th>Program Order</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Strict</td>
+                        <td>Yes</td>
+                        <td>Yes</td>
+                        <td>Yes</td>
+                    </tr>
+                    <tr>
+                        <td>Sequential</td>
+                        <td>Yes</td>
+                        <td>No</td>
+                        <td>Yes</td>
+                    </tr>
+                    <tr>
+                        <td>Causal</td>
+                        <td>Partial (only causal)</td>
+                        <td>No</td>
+                        <td>Yes</td>
+                    </tr>
+                    <tr>
+                        <td>Eventual</td>
+                        <td>No</td>
+                        <td>No</td>
+                        <td>No</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Consistency Model Hierarchy</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create a hierarchical pyramid diagram showing the four consistency models from strongest (Strict at top) to weakest (Eventual at bottom). Each level should be interactive - clicking on it reveals example scenarios that are allowed/disallowed under that model but differ from other models. Use a toggle to show the same execution trace under different models, highlighting what changes. Include animated arrows showing how relaxing constraints as you go down the hierarchy enables better performance but weaker guarantees.</p>
+                </div>
+            </div>
+
+            <h3>Connection to Raft</h3>
+
+            <div class="callout-info">
+                <p><strong>Question from lecture:</strong> Does Raft provide sequential consistency?</p>
+                <p><strong>Short answer:</strong> Yes, if clients interact correctly (see Raft paper Section 8).</p>
+                <p><strong>Key points:</strong></p>
+                <ul>
+                    <li>Raft's log provides a total order of operations</li>
+                    <li>All servers apply operations in the same order</li>
+                    <li>Client interactions must handle retries and linearizability</li>
+                </ul>
+                <p><strong>But:</strong> Raft actually provides something stronger than sequential consistency - it provides linearizability (also called strict consistency), which includes real-time constraints.</p>
+            </div>
+        </section>
+
+        <section id="exam-tips">
+            <h2>Exam Tips</h2>
+
+            <h3>What Professors Look For</h3>
+            <ol>
+                <li><strong>Can you construct/check a total order?</strong>
+                    <p>Most common exam question type<br>Practice building timelines!</p>
+                </li>
+                <li><strong>Do you understand program order?</strong>
+                    <p>Can you identify when it's violated?</p>
+                </li>
+                <li><strong>Can you spot contradictions?</strong>
+                    <p>"If A sees X=1 then Y=0, and B sees Y=2 then X=0..."<br>Work through the logic carefully</p>
+                </li>
+            </ol>
+
+            <h3>Time Management</h3>
+            <ul>
+                <li>Draw diagrams! Visual representation helps avoid mistakes</li>
+                <li>Start with program orders (what must stay ordered)</li>
+                <li>Then fill in concurrent operations</li>
+                <li>Check your work: does every read get the right value?</li>
+            </ul>
+
+            <h3>Common Exam Patterns</h3>
+            <ol>
+                <li><strong>Given operations, determine if sequential consistency is satisfied</strong></li>
+                <li><strong>Given a consistency model, determine what outcomes are possible</strong></li>
+                <li><strong>Compare sequential consistency to strict/causal consistency</strong></li>
+                <li><strong>Implementation questions</strong> (less common): How would you implement it?</li>
+            </ol>
+
+            <div class="visualization-placeholder">
+                <h3>📊 Visualization: Exam Problem Solver</h3>
+                <p><em>Interactive visualization will be generated here</em></p>
+                <div class="viz-prompt">
+                    <strong>Prompt for visualization agent:</strong>
+                    <p>Create a step-by-step exam problem solver that guides students through checking sequential consistency. Start with an input form for the problem (machines, operations, observations). Then show a guided workflow: (1) Extract program order constraints with arrows, (2) Extract read-write dependencies with different colored arrows, (3) Attempt to construct a topological ordering, (4) Validate the ordering against observations, (5) Provide verdict (valid/invalid) with detailed explanation. Include a timer to practice time management and a hint system for students who get stuck.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="final-checklist">
+            <h2>Final Checklist</h2>
+
+            <p>Before the exam, make sure you can:</p>
+
+            <ul style="list-style-type: none;">
+                <li>☐ Define sequential consistency in your own words</li>
+                <li>☐ Explain the two rules clearly</li>
+                <li>☐ Differentiate it from strict consistency</li>
+                <li>☐ Construct a total order from a given scenario</li>
+                <li>☐ Identify when sequential consistency is violated</li>
+                <li>☐ Explain why certain outcomes are/aren't possible</li>
+                <li>☐ Understand the trade-offs (performance vs. guarantees)</li>
+                <li>☐ Give real-world examples of systems using it</li>
+            </ul>
+        </section>
+
+        <section id="additional-resources">
+            <h2>Additional Resources</h2>
+
+            <div class="callout-info">
+                <h4>From Lecture</h4>
+                <ul>
+                    <li>Section 7.2.1: Consistent Ordering of Operations (textbook)</li>
+                    <li>Memory Coherence in Shared Virtual Memory Systems (TOCS 1989)</li>
+                </ul>
+
+                <h4>Recommended Reading</h4>
+                <ul>
+                    <li>Leslie Lamport's original paper "How to Make a Multiprocessor Computer That Correctly Executes Multiprocess Programs" (1979)</li>
+                    <li>Raft paper Section 8 (Client interaction)</li>
+                </ul>
+
+                <h4>Practice</h4>
+                <ul>
+                    <li>Work through the iClicker questions from lecture 13</li>
+                    <li>Try creating your own scenarios and checking them</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="conclusion">
+            <h2>Good Luck!</h2>
+
+            <div class="callout-success">
+                <p><strong>Remember:</strong> Sequential consistency is all about finding a story (total order) that everyone can agree on, while respecting what each process did in order. If you can tell a coherent story that explains all observations, you've got sequential consistency!</p>
+                <p><strong>When in doubt, draw it out.</strong> Timelines are your friend.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

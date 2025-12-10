@@ -1,0 +1,2360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practice Questions and Final Exam Discussion | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Practice Questions and Final Exam Discussion</h1>
+            <p>CS 416 Study Guide - Topic 10</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="overview">
+            <h2>Overview</h2>
+            <p>This guide is designed to help you prepare for the CPSC 416 Distributed Systems final exam. It includes practical exam preparation advice, example questions with detailed explanations, common pitfalls to avoid, and memory aids for key concepts.</p>
+        </section>
+
+        <section id="exam-structure">
+            <h2>Exam Structure</h2>
+
+            <h3>Format</h3>
+            <ul>
+                <li><strong>Total Duration</strong>: ~2.5 hours</li>
+                <li><strong>Part I</strong> (~1 hour): Material NOT covered in Quiz 1 and Quiz 2
+                    <ul>
+                        <li>Lab 03</li>
+                        <li>Lamport Clocks and Eventual Consistency</li>
+                        <li>Distributed Mutual Exclusion</li>
+                        <li>Distributed Snapshots</li>
+                        <li>Distributed Hashing with Chord</li>
+                        <li>Bitcoin</li>
+                        <li>Guest Lecture content</li>
+                    </ul>
+                </li>
+                <li><strong>Part II</strong> (~1.5 hours): Everything from the entire course
+                    <ul>
+                        <li>No hard split between parts</li>
+                        <li>You can answer questions in any order</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <h3>Key Topics Covered</h3>
+            <p>Based on exam-topics.txt, expect questions on:</p>
+            <ul>
+                <li>Threads</li>
+                <li>RPC (Remote Procedure Calls)</li>
+                <li>Fault Tolerance</li>
+                <li>Distributed Agreement</li>
+                <li>Distributed Snapshots</li>
+                <li>Clocks, Consistency, and Cuts</li>
+                <li>Peer-to-peer Systems (Chord DHT)</li>
+                <li>Distributed Mutual Exclusion</li>
+                <li>Lab 03 concepts</li>
+                <li>Mixed/综合 topics</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Exam Topic Coverage Map</h3>
+
+            <div style="margin: 20px 0; padding: 15px; background: rgba(52, 152, 219, 0.1); border-radius: 8px;">
+                <strong>Legend:</strong>
+                <span style="display: inline-block; margin-left: 20px; padding: 5px 10px; background: #e74c3c; color: white; border-radius: 4px; font-size: 0.85em;">Part I (New)</span>
+                <span style="display: inline-block; margin-left: 10px; padding: 5px 10px; background: #3498db; color: white; border-radius: 4px; font-size: 0.85em;">Part II (All)</span>
+                <span style="display: inline-block; margin-left: 10px; padding: 5px 10px; background: #27ae60; color: white; border-radius: 4px; font-size: 0.85em;">Lab-Related</span>
+            </div>
+
+            <svg id="topicMap" width="100%" height="700" style="background: #f8f9fa; border-radius: 8px;"></svg>
+
+            <script>
+            (function() {
+                const svg = document.getElementById('topicMap');
+                const width = svg.clientWidth || 1000;
+                const height = 700;
+                svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                const topics = [
+                    { id: 'core', x: width/2, y: 50, r: 40, label: 'CS 416\nFinal Exam', color: '#2c3e50', type: 'center' },
+
+                    // Part I Topics (Red) - positioned around the circle
+                    { id: 'lamport', x: width*0.8, y: 150, r: 30, label: 'Lamport\nClocks', color: '#e74c3c', type: 'part1', parent: 'core' },
+                    { id: 'mutex', x: width*0.85, y: 300, r: 30, label: 'Mutual\nExclusion', color: '#e74c3c', type: 'part1', parent: 'core' },
+                    { id: 'snapshots', x: width*0.75, y: 450, r: 30, label: 'Distributed\nSnapshots', color: '#e74c3c', type: 'part1', parent: 'core' },
+                    { id: 'chord', x: width*0.55, y: 550, r: 30, label: 'Chord\nDHT', color: '#e74c3c', type: 'part1', parent: 'core' },
+                    { id: 'bitcoin', x: width*0.3, y: 550, r: 30, label: 'Bitcoin', color: '#e74c3c', type: 'part1', parent: 'core' },
+                    { id: 'lab3', x: width*0.15, y: 450, r: 30, label: 'Lab 03\nLock', color: '#27ae60', type: 'lab', parent: 'core' },
+
+                    // Part II Topics (Blue) - positioned on inner circle
+                    { id: 'rpc', x: width*0.2, y: 200, r: 25, label: 'RPC', color: '#3498db', type: 'part2', parent: 'core' },
+                    { id: 'threads', x: width*0.15, y: 300, r: 25, label: 'Threads', color: '#3498db', type: 'part2', parent: 'core' },
+                    { id: 'byzantine', x: width*0.35, y: 150, r: 25, label: 'Byzantine\nFault', color: '#3498db', type: 'part2', parent: 'core' },
+                    { id: 'sequential', x: width*0.5, y: 180, r: 25, label: 'Sequential\nConsistency', color: '#3498db', type: 'part2', parent: 'core' },
+                    { id: 'causal', x: width*0.65, y: 180, r: 25, label: 'Causal\nConsistency', color: '#3498db', type: 'part2', parent: 'core' },
+
+                    // Related concepts
+                    { id: 'eventual', x: width*0.7, y: 100, r: 20, label: 'Eventual', color: '#95a5a6', type: 'related', parent: 'lamport' },
+                    { id: 'vector', x: width*0.9, y: 180, r: 20, label: 'Vector\nClocks', color: '#95a5a6', type: 'related', parent: 'lamport' },
+                    { id: 'mapreduce', x: width*0.25, y: 620, r: 20, label: 'MapReduce', color: '#95a5a6', type: 'related', parent: 'bitcoin' }
+                ];
+
+                const connections = [];
+                topics.forEach(topic => {
+                    if (topic.parent) {
+                        const parent = topics.find(t => t.id === topic.parent);
+                        if (parent) {
+                            connections.push({ from: parent, to: topic, type: 'main' });
+                        }
+                    }
+                });
+
+                // Add cross-topic connections
+                connections.push(
+                    { from: topics.find(t => t.id === 'lamport'), to: topics.find(t => t.id === 'snapshots'), type: 'related' },
+                    { from: topics.find(t => t.id === 'lamport'), to: topics.find(t => t.id === 'mutex'), type: 'related' },
+                    { from: topics.find(t => t.id === 'rpc'), to: topics.find(t => t.id === 'lab3'), type: 'related' },
+                    { from: topics.find(t => t.id === 'causal'), to: topics.find(t => t.id === 'lamport'), type: 'related' }
+                );
+
+                // Draw connections
+                connections.forEach(conn => {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', conn.from.x);
+                    line.setAttribute('y1', conn.from.y);
+                    line.setAttribute('x2', conn.to.x);
+                    line.setAttribute('y2', conn.to.y);
+                    line.setAttribute('stroke', conn.type === 'main' ? '#bdc3c7' : '#ecf0f1');
+                    line.setAttribute('stroke-width', conn.type === 'main' ? '2' : '1');
+                    line.setAttribute('stroke-dasharray', conn.type === 'related' ? '5,5' : '0');
+                    line.setAttribute('opacity', '0.6');
+                    svg.appendChild(line);
+                });
+
+                // Draw topic nodes
+                topics.forEach(topic => {
+                    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    g.setAttribute('style', 'cursor: pointer;');
+
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', topic.x);
+                    circle.setAttribute('cy', topic.y);
+                    circle.setAttribute('r', topic.r);
+                    circle.setAttribute('fill', topic.color);
+                    circle.setAttribute('stroke', '#fff');
+                    circle.setAttribute('stroke-width', '3');
+                    circle.setAttribute('class', 'topic-node');
+
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', topic.x);
+                    text.setAttribute('y', topic.y);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('dominant-baseline', 'middle');
+                    text.setAttribute('fill', 'white');
+                    text.setAttribute('font-size', topic.r > 30 ? '14' : '11');
+                    text.setAttribute('font-weight', 'bold');
+                    text.setAttribute('pointer-events', 'none');
+
+                    const lines = topic.label.split('\n');
+                    if (lines.length === 1) {
+                        text.textContent = topic.label;
+                    } else {
+                        lines.forEach((line, i) => {
+                            const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                            tspan.setAttribute('x', topic.x);
+                            tspan.setAttribute('y', topic.y + (i - (lines.length-1)/2) * 12);
+                            tspan.textContent = line;
+                            text.appendChild(tspan);
+                        });
+                    }
+
+                    g.appendChild(circle);
+                    g.appendChild(text);
+
+                    // Hover effects
+                    g.addEventListener('mouseenter', function() {
+                        circle.setAttribute('r', topic.r * 1.1);
+                        circle.setAttribute('filter', 'drop-shadow(0px 0px 8px rgba(0,0,0,0.3))');
+                    });
+
+                    g.addEventListener('mouseleave', function() {
+                        circle.setAttribute('r', topic.r);
+                        circle.setAttribute('filter', 'none');
+                    });
+
+                    svg.appendChild(g);
+                });
+            })();
+            </script>
+
+            <div style="margin-top: 20px; padding: 15px; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 4px;">
+                <strong>Study Strategy:</strong> Focus heavily on Part I topics (red nodes) as they comprise ~40% of the exam. However, don't neglect Part II topics (blue nodes) as they make up the remaining ~60% and build the foundation for Part I concepts.
+            </div>
+        </div>
+
+        <section id="general-strategies">
+            <h2>General Exam Strategies</h2>
+
+            <h3>Before You Start</h3>
+            <ol>
+                <li><strong>Skim the entire exam first</strong> - Identify easy vs. hard questions</li>
+                <li><strong>Budget your time</strong> - Don't spend 30 minutes on a 5-point question</li>
+                <li><strong>Start with what you know</strong> - Build confidence and secure points</li>
+                <li><strong>Read questions carefully</strong> - Watch for key words like "all possible," "expected," "irrecoverably"</li>
+            </ol>
+
+            <h3>During the Exam</h3>
+            <ul>
+                <li><strong>Show your work</strong> - Partial credit is real</li>
+                <li><strong>Draw diagrams</strong> - Especially for distributed snapshots, happens-before, and message passing</li>
+                <li><strong>Check boundary conditions</strong> - What if n=1? What if the network fails?</li>
+                <li><strong>State your assumptions</strong> - If the question is ambiguous, clarify what you're assuming</li>
+            </ul>
+
+            <div class="callout-warning">
+                <h4>Common Pitfalls to Avoid</h4>
+                <ol>
+                    <li><strong>Confusing "expected" vs. "all possible" values</strong> - One asks for the most likely outcome, the other asks for every possibility</li>
+                    <li><strong>Forgetting network failures</strong> - Messages can be duplicated, dropped, delayed, or reordered</li>
+                    <li><strong>Ignoring crash scenarios</strong> - Servers can crash and reboot</li>
+                    <li><strong>Missing edge cases in modulo arithmetic</strong> - Chord uses modulo operations; be careful with wraparound</li>
+                    <li><strong>Not reading the happens-before arrows carefully</strong> - The direction and causality matter!</li>
+                </ol>
+            </div>
+        </section>
+
+        <section id="topic-rpc">
+            <h2>Topic 1: RPC (Remote Procedure Calls)</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>At-most-once semantics</strong>: Operation executes 0 or 1 times (never more)</li>
+                <li><strong>At-least-once semantics</strong>: Operation executes 1 or more times (never less)</li>
+                <li><strong>Exactly-once semantics</strong>: Operation executes exactly 1 time (ideal but hard to achieve)</li>
+            </ul>
+
+            <h3>Network Assumptions</h3>
+            <p>Messages can be:</p>
+            <ul>
+                <li><strong>Duplicated</strong> (same message arrives multiple times)</li>
+                <li><strong>Dropped</strong> (never arrive)</li>
+                <li><strong>Reordered</strong> (arrive out of order)</li>
+                <li><strong>Delayed</strong> (arrive much later than expected)</li>
+            </ul>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive RPC Message Failure Scenarios</h3>
+
+                <div style="margin-bottom: 20px;">
+                    <button onclick="showRPCScenario(0)" style="padding: 10px 20px; margin: 5px; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Request Dropped</button>
+                    <button onclick="showRPCScenario(1)" style="padding: 10px 20px; margin: 5px; background: #f39c12; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Reply Dropped</button>
+                    <button onclick="showRPCScenario(2)" style="padding: 10px 20px; margin: 5px; background: #9b59b6; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Request Duplicated</button>
+                    <button onclick="showRPCScenario(3)" style="padding: 10px 20px; margin: 5px; background: #16a085; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Message Delayed</button>
+                </div>
+
+                <svg id="rpcScenario" width="100%" height="500" style="background: #f8f9fa; border-radius: 8px;"></svg>
+
+                <div id="rpcDescription" style="margin-top: 20px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Scenario:</strong> <span id="scenarioTitle">Click a button above to see different RPC failure scenarios</span>
+                    <p id="scenarioDesc" style="margin-top: 10px;"></p>
+                </div>
+
+                <script>
+                let currentScenario = -1;
+
+                const scenarios = [
+                    {
+                        title: "Request Dropped",
+                        desc: "Client sends request, but it never reaches the server. Client times out and retries. The operation may execute late if retry succeeds.",
+                        color: "#e74c3c",
+                        steps: [
+                            { type: 'send', from: 'client', to: 'server', y: 100, label: 'REQ', failed: true },
+                            { type: 'timeout', at: 'client', y: 200, label: 'Timeout!' },
+                            { type: 'send', from: 'client', to: 'server', y: 250, label: 'REQ (retry)' },
+                            { type: 'process', at: 'server', y: 300, label: 'Execute' },
+                            { type: 'send', from: 'server', to: 'client', y: 350, label: 'REPLY' }
+                        ]
+                    },
+                    {
+                        title: "Reply Dropped",
+                        desc: "Server processes request and sends reply, but reply is lost. Client retries, causing DUPLICATE execution. This is dangerous for non-idempotent operations!",
+                        color: "#f39c12",
+                        steps: [
+                            { type: 'send', from: 'client', to: 'server', y: 100, label: 'REQ' },
+                            { type: 'process', at: 'server', y: 150, label: 'Execute (1)' },
+                            { type: 'send', from: 'server', to: 'client', y: 200, label: 'REPLY', failed: true },
+                            { type: 'timeout', at: 'client', y: 250, label: 'Timeout!' },
+                            { type: 'send', from: 'client', to: 'server', y: 300, label: 'REQ (retry)' },
+                            { type: 'process', at: 'server', y: 350, label: 'Execute (2) ⚠️' },
+                            { type: 'send', from: 'server', to: 'client', y: 400, label: 'REPLY' }
+                        ]
+                    },
+                    {
+                        title: "Request Duplicated",
+                        desc: "Network duplicates the request message. Server receives and executes the same request twice, leading to duplicate execution.",
+                        color: "#9b59b6",
+                        steps: [
+                            { type: 'send', from: 'client', to: 'server', y: 100, label: 'REQ', split: true },
+                            { type: 'process', at: 'server', y: 150, label: 'Execute (1)' },
+                            { type: 'send', from: 'server', to: 'client', y: 200, label: 'REPLY' },
+                            { type: 'process', at: 'server', y: 280, label: 'Execute (2) ⚠️' },
+                            { type: 'send', from: 'server', to: 'client', y: 330, label: 'REPLY' }
+                        ]
+                    },
+                    {
+                        title: "Message Delayed",
+                        desc: "Reply arrives after client timeout. Client has already retried. Server may execute twice if retry arrives before delayed reply is processed.",
+                        color: "#16a085",
+                        steps: [
+                            { type: 'send', from: 'client', to: 'server', y: 100, label: 'REQ (1)' },
+                            { type: 'process', at: 'server', y: 150, label: 'Execute (1)' },
+                            { type: 'send', from: 'server', to: 'client', y: 200, label: 'REPLY', delayed: true },
+                            { type: 'timeout', at: 'client', y: 250, label: 'Timeout!' },
+                            { type: 'send', from: 'client', to: 'server', y: 300, label: 'REQ (2)' },
+                            { type: 'process', at: 'server', y: 350, label: 'Execute (2) ⚠️' },
+                            { type: 'send', from: 'server', to: 'client', y: 400, label: 'REPLY' }
+                        ]
+                    }
+                ];
+
+                function showRPCScenario(index) {
+                    currentScenario = index;
+                    const scenario = scenarios[index];
+                    document.getElementById('scenarioTitle').textContent = scenario.title;
+                    document.getElementById('scenarioDesc').textContent = scenario.desc;
+
+                    const svg = document.getElementById('rpcScenario');
+                    svg.innerHTML = '';
+                    const width = svg.clientWidth || 800;
+                    const height = 500;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                    const clientX = width * 0.25;
+                    const serverX = width * 0.75;
+
+                    // Draw client and server lines
+                    const clientLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    clientLine.setAttribute('x1', clientX);
+                    clientLine.setAttribute('y1', 50);
+                    clientLine.setAttribute('x2', clientX);
+                    clientLine.setAttribute('y2', 450);
+                    clientLine.setAttribute('stroke', '#3498db');
+                    clientLine.setAttribute('stroke-width', '3');
+                    svg.appendChild(clientLine);
+
+                    const serverLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    serverLine.setAttribute('x1', serverX);
+                    serverLine.setAttribute('y1', 50);
+                    serverLine.setAttribute('x2', serverX);
+                    serverLine.setAttribute('y2', 450);
+                    serverLine.setAttribute('stroke', '#27ae60');
+                    serverLine.setAttribute('stroke-width', '3');
+                    svg.appendChild(serverLine);
+
+                    // Labels
+                    const clientLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    clientLabel.setAttribute('x', clientX);
+                    clientLabel.setAttribute('y', 30);
+                    clientLabel.setAttribute('text-anchor', 'middle');
+                    clientLabel.setAttribute('fill', '#3498db');
+                    clientLabel.setAttribute('font-weight', 'bold');
+                    clientLabel.setAttribute('font-size', '16');
+                    clientLabel.textContent = 'CLIENT';
+                    svg.appendChild(clientLabel);
+
+                    const serverLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    serverLabel.setAttribute('x', serverX);
+                    serverLabel.setAttribute('y', 30);
+                    serverLabel.setAttribute('text-anchor', 'middle');
+                    serverLabel.setAttribute('fill', '#27ae60');
+                    serverLabel.setAttribute('font-weight', 'bold');
+                    serverLabel.setAttribute('font-size', '16');
+                    serverLabel.textContent = 'SERVER';
+                    svg.appendChild(serverLabel);
+
+                    // Draw steps
+                    scenario.steps.forEach((step, i) => {
+                        if (step.type === 'send') {
+                            const fromX = step.from === 'client' ? clientX : serverX;
+                            const toX = step.to === 'client' ? clientX : serverX;
+
+                            const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            arrow.setAttribute('x1', fromX);
+                            arrow.setAttribute('y1', step.y);
+                            arrow.setAttribute('x2', step.failed ? (fromX + toX) / 2 : toX);
+                            arrow.setAttribute('y2', step.y + (step.delayed ? 200 : 0));
+                            arrow.setAttribute('stroke', step.failed ? '#e74c3c' : scenario.color);
+                            arrow.setAttribute('stroke-width', '2');
+                            arrow.setAttribute('marker-end', step.failed ? 'none' : 'url(#arrowhead)');
+                            if (step.failed) {
+                                arrow.setAttribute('stroke-dasharray', '5,5');
+                            }
+                            svg.appendChild(arrow);
+
+                            if (step.failed) {
+                                const x = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                                x.setAttribute('x', (fromX + toX) / 2);
+                                x.setAttribute('y', step.y - 5);
+                                x.setAttribute('text-anchor', 'middle');
+                                x.setAttribute('fill', '#e74c3c');
+                                x.setAttribute('font-size', '20');
+                                x.setAttribute('font-weight', 'bold');
+                                x.textContent = '✗';
+                                svg.appendChild(x);
+                            }
+
+                            // Label
+                            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            label.setAttribute('x', (fromX + toX) / 2);
+                            label.setAttribute('y', step.y - 10);
+                            label.setAttribute('text-anchor', 'middle');
+                            label.setAttribute('fill', '#2c3e50');
+                            label.setAttribute('font-size', '12');
+                            label.setAttribute('font-weight', 'bold');
+                            label.textContent = step.label;
+                            svg.appendChild(label);
+
+                            if (step.split) {
+                                // Draw duplicate arrow
+                                const arrow2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                                arrow2.setAttribute('x1', fromX);
+                                arrow2.setAttribute('y1', step.y);
+                                arrow2.setAttribute('x2', toX);
+                                arrow2.setAttribute('y2', step.y + 120);
+                                arrow2.setAttribute('stroke', scenario.color);
+                                arrow2.setAttribute('stroke-width', '2');
+                                arrow2.setAttribute('marker-end', 'url(#arrowhead)');
+                                arrow2.setAttribute('opacity', '0.7');
+                                svg.appendChild(arrow2);
+
+                                const dupLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                                dupLabel.setAttribute('x', (fromX + toX) / 2);
+                                dupLabel.setAttribute('y', step.y + 60);
+                                dupLabel.setAttribute('text-anchor', 'middle');
+                                dupLabel.setAttribute('fill', '#2c3e50');
+                                dupLabel.setAttribute('font-size', '12');
+                                dupLabel.setAttribute('font-weight', 'bold');
+                                dupLabel.textContent = step.label + ' (dup)';
+                                svg.appendChild(dupLabel);
+                            }
+                        } else if (step.type === 'timeout') {
+                            const x = step.at === 'client' ? clientX : serverX;
+                            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            rect.setAttribute('x', x - 40);
+                            rect.setAttribute('y', step.y - 15);
+                            rect.setAttribute('width', 80);
+                            rect.setAttribute('height', 25);
+                            rect.setAttribute('fill', '#e74c3c');
+                            rect.setAttribute('rx', 5);
+                            svg.appendChild(rect);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', step.y + 3);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', 'white');
+                            text.setAttribute('font-size', '12');
+                            text.setAttribute('font-weight', 'bold');
+                            text.textContent = step.label;
+                            svg.appendChild(text);
+                        } else if (step.type === 'process') {
+                            const x = step.at === 'client' ? clientX : serverX;
+                            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            rect.setAttribute('x', x - 45);
+                            rect.setAttribute('y', step.y - 15);
+                            rect.setAttribute('width', 90);
+                            rect.setAttribute('height', 25);
+                            rect.setAttribute('fill', '#27ae60');
+                            rect.setAttribute('rx', 5);
+                            svg.appendChild(rect);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', step.y + 3);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', 'white');
+                            text.setAttribute('font-size', '12');
+                            text.setAttribute('font-weight', 'bold');
+                            text.textContent = step.label;
+                            svg.appendChild(text);
+                        }
+                    });
+
+                    // Arrow marker definition
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                    marker.setAttribute('id', 'arrowhead');
+                    marker.setAttribute('markerWidth', '10');
+                    marker.setAttribute('markerHeight', '10');
+                    marker.setAttribute('refX', '9');
+                    marker.setAttribute('refY', '3');
+                    marker.setAttribute('orient', 'auto');
+                    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                    polygon.setAttribute('fill', scenario.color);
+                    marker.appendChild(polygon);
+                    defs.appendChild(marker);
+                    svg.insertBefore(defs, svg.firstChild);
+                }
+
+                // Show first scenario by default after page loads
+                setTimeout(() => showRPCScenario(0), 100);
+                </script>
+            </div>
+
+            <h3>Example Question Pattern: RPC Semantics</h3>
+
+            <p><strong>Question</strong>: Given this RPC implementation:</p>
+            <pre><code>// Client
+rpc_call(command) {
+    while(1) {
+        transmit(command)
+        reply = receive(1)  // 1-second timeout
+        if (reply) return(reply)
+    }
+}
+
+// Server
+rpc_handle_daemon() {
+    while (1) {
+        command = receive()  // blocking
+        reply = execute(command)
+        transmit(reply)
+    }
+}</code></pre>
+
+            <p>If the client executes:</p>
+            <pre><code>// Start: X=0
+rpc_call("add, X, 1")
+rpc_call("add, X, 2")
+// End</code></pre>
+
+            <p>What are all possible values of X?</p>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: 1, 2, 3, or 4 (or more!)</p>
+
+                <p><strong>Explanation</strong>:</p>
+                <ul>
+                    <li><strong>Why not 0?</strong> At least one RPC must succeed for the client to proceed</li>
+                    <li><strong>Why 1?</strong> First RPC succeeds, second fails completely</li>
+                    <li><strong>Why 2?</strong> First RPC fails completely, second succeeds</li>
+                    <li><strong>Why 3?</strong> Both RPCs succeed exactly once (expected case)</li>
+                    <li><strong>Why 4 or more?</strong>
+                        <ul>
+                            <li>First RPC executes twice (request resent due to timeout, but both execute)</li>
+                            <li>Second RPC executes once</li>
+                            <li>Total: 1+1+2 = 4</li>
+                            <li>Or second RPC also executes multiple times!</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <p><strong>Key Insight</strong>: Without idempotency or deduplication (using request IDs), <code>add</code> operations can execute multiple times!</p>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: RPC Failure Modes</h4>
+                <p><strong>"DROP-DUPE-DELAY-DISORDER"</strong></p>
+                <ul>
+                    <li><strong>D</strong>ROP: Messages can disappear</li>
+                    <li><strong>D</strong>UPE: Messages can duplicate</li>
+                    <li><strong>D</strong>ELAY: Messages can arrive late</li>
+                    <li><strong>DIS</strong>ORDER: Messages can arrive out of order</li>
+                </ul>
+            </div>
+
+            <h3>Problem-Solving Strategy</h3>
+            <ol>
+                <li><strong>Identify the semantics</strong>: At-most-once, at-least-once, or exactly-once?</li>
+                <li><strong>Consider all network failures</strong>: What if reply is lost? What if request is duplicated?</li>
+                <li><strong>Trace through scenarios</strong>:
+                    <ul>
+                        <li>Best case (everything works)</li>
+                        <li>Request lost</li>
+                        <li>Reply lost</li>
+                        <li>Request duplicated</li>
+                        <li>Server crashes</li>
+                    </ul>
+                </li>
+                <li><strong>Check if operations are idempotent</strong>: <code>set</code> is idempotent, <code>add</code> is not</li>
+            </ol>
+        </section>
+
+        <section id="topic-lab03">
+            <h2>Topic 2: Lab 03 - Distributed Lock</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>At-most-once RPC semantics</strong> for Put/Get operations</li>
+                <li><strong>Version numbers</strong> to track state freshness</li>
+                <li><strong>Lock holder identification</strong> using UID</li>
+                <li><strong>Error handling</strong>: OK, ErrVersion, ErrMaybe</li>
+            </ul>
+
+            <h3>Understanding Error Codes</h3>
+            <ul>
+                <li><strong>OK</strong>: Operation succeeded, server state updated</li>
+                <li><strong>ErrVersion</strong>: Version mismatch, client is out of date OR server is out of date</li>
+                <li><strong>ErrMaybe</strong>: Uncertain if operation succeeded (network issue, timeout, etc.)</li>
+            </ul>
+
+            <h3>Example Question: Lock Release Implementation</h3>
+
+            <p><strong>Question</strong>: Which values complete this Release implementation?</p>
+            <pre><code>func (lk *Lock) tryReleaseLock() bool {
+    err := lk.ck.Put(lk.lockKey, "", lk.lockVersion)
+    switch err {
+    case rpc.OK:
+        return ______ // BLANK #1
+    case rpc.ErrVersion:
+        return ______ // BLANK #2
+    case rpc.ErrMaybe:
+        return ______ // BLANK #3
+    default:
+        return ______ // BLANK #4
+    }
+}</code></pre>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: true, true, false, false (but verify the exact semantics!)</p>
+
+                <p><strong>Explanation</strong>:</p>
+                <ul>
+                    <li><strong>BLANK #1 (OK)</strong>: <code>true</code> - Operation succeeded, lock is released</li>
+                    <li><strong>BLANK #2 (ErrVersion)</strong>: <code>true</code> - Someone else already changed the lock (likely released it), so it's safe to say we're done</li>
+                    <li><strong>BLANK #3 (ErrMaybe)</strong>: <code>false</code> - Uncertain if lock was released, must retry</li>
+                    <li><strong>BLANK #4 (default)</strong>: <code>false</code> - Unknown error, retry to be safe</li>
+                </ul>
+
+                <p><strong>Alternative reasoning for BLANK #2</strong>:</p>
+                <ul>
+                    <li>If we get ErrVersion, it means the version on the server doesn't match ours</li>
+                    <li>This could mean someone else already released (or acquired) the lock</li>
+                    <li>Since our goal is to release, and the lock is already in a different state, we can consider our job done</li>
+                    <li><strong>However</strong>, this depends on the exact semantics expected in Lab 03!</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: Lock State Machine</h4>
+                <pre><code>FREE (version v, value "")
+  -> Acquire ->
+HELD (version v+1, value "UID")
+  -> Release ->
+FREE (version v+2, value "")</code></pre>
+            </div>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Distributed Lock State Machine</h3>
+
+                <svg id="lockStateMachine" width="100%" height="500" style="background: #f8f9fa; border-radius: 8px;"></svg>
+
+                <div style="margin-top: 20px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Key Concepts:</strong>
+                    <ul style="margin-top: 10px;">
+                        <li><strong>OK</strong>: Operation succeeded, state changed, version incremented</li>
+                        <li><strong>ErrVersion</strong>: Version mismatch - someone else modified the lock</li>
+                        <li><strong>ErrMaybe</strong>: Uncertain result - must retry to ensure correctness</li>
+                    </ul>
+                </div>
+
+                <script>
+                (function() {
+                    const svg = document.getElementById('lockStateMachine');
+                    const width = svg.clientWidth || 1000;
+                    const height = 500;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                    const states = [
+                        { id: 'free', x: width * 0.2, y: 150, label: 'FREE', sublabel: 'v, ""', color: '#27ae60' },
+                        { id: 'held', x: width * 0.8, y: 150, label: 'HELD', sublabel: 'v+1, UID', color: '#e74c3c' }
+                    ];
+
+                    // Draw states
+                    states.forEach(state => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', state.x);
+                        circle.setAttribute('cy', state.y);
+                        circle.setAttribute('r', 60);
+                        circle.setAttribute('fill', state.color);
+                        circle.setAttribute('stroke', '#2c3e50');
+                        circle.setAttribute('stroke-width', '3');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', state.x);
+                        text.setAttribute('y', state.y - 10);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', 'white');
+                        text.setAttribute('font-size', '18');
+                        text.setAttribute('font-weight', 'bold');
+                        text.textContent = state.label;
+                        svg.appendChild(text);
+
+                        const subtext = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        subtext.setAttribute('x', state.x);
+                        subtext.setAttribute('y', state.y + 15);
+                        subtext.setAttribute('text-anchor', 'middle');
+                        subtext.setAttribute('fill', 'white');
+                        subtext.setAttribute('font-size', '14');
+                        subtext.textContent = state.sublabel;
+                        svg.appendChild(subtext);
+                    });
+
+                    // Acquire transition (FREE -> HELD)
+                    const acquirePath = `M ${states[0].x + 50} ${states[0].y - 30} Q ${width/2} ${60} ${states[1].x - 50} ${states[1].y - 30}`;
+                    const acquire = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    acquire.setAttribute('d', acquirePath);
+                    acquire.setAttribute('fill', 'none');
+                    acquire.setAttribute('stroke', '#3498db');
+                    acquire.setAttribute('stroke-width', '3');
+                    acquire.setAttribute('marker-end', 'url(#arrowBlue)');
+                    svg.appendChild(acquire);
+
+                    const acquireLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    acquireLabel.setAttribute('x', width/2);
+                    acquireLabel.setAttribute('y', 50);
+                    acquireLabel.setAttribute('text-anchor', 'middle');
+                    acquireLabel.setAttribute('fill', '#3498db');
+                    acquireLabel.setAttribute('font-size', '14');
+                    acquireLabel.setAttribute('font-weight', 'bold');
+                    acquireLabel.textContent = 'Acquire (OK)';
+                    svg.appendChild(acquireLabel);
+
+                    // Release transition (HELD -> FREE)
+                    const releasePath = `M ${states[1].x - 50} ${states[1].y + 30} Q ${width/2} ${height - 60} ${states[0].x + 50} ${states[0].y + 30}`;
+                    const release = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    release.setAttribute('d', releasePath);
+                    release.setAttribute('fill', 'none');
+                    release.setAttribute('stroke', '#27ae60');
+                    release.setAttribute('stroke-width', '3');
+                    release.setAttribute('marker-end', 'url(#arrowGreen)');
+                    svg.appendChild(release);
+
+                    const releaseLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    releaseLabel.setAttribute('x', width/2);
+                    releaseLabel.setAttribute('y', height - 45);
+                    releaseLabel.setAttribute('text-anchor', 'middle');
+                    releaseLabel.setAttribute('fill', '#27ae60');
+                    releaseLabel.setAttribute('font-size', '14');
+                    releaseLabel.setAttribute('font-weight', 'bold');
+                    releaseLabel.textContent = 'Release (OK)';
+                    svg.appendChild(releaseLabel);
+
+                    // Retry loops
+                    // FREE retry (ErrMaybe)
+                    const freeRetryPath = `M ${states[0].x - 70} ${states[0].y - 40} A 40 40 0 1 1 ${states[0].x - 70} ${states[0].y + 40}`;
+                    const freeRetry = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    freeRetry.setAttribute('d', freeRetryPath);
+                    freeRetry.setAttribute('fill', 'none');
+                    freeRetry.setAttribute('stroke', '#f39c12');
+                    freeRetry.setAttribute('stroke-width', '2');
+                    freeRetry.setAttribute('stroke-dasharray', '5,5');
+                    freeRetry.setAttribute('marker-end', 'url(#arrowOrange)');
+                    svg.appendChild(freeRetry);
+
+                    const freeRetryLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    freeRetryLabel.setAttribute('x', states[0].x - 110);
+                    freeRetryLabel.setAttribute('y', states[0].y);
+                    freeRetryLabel.setAttribute('text-anchor', 'middle');
+                    freeRetryLabel.setAttribute('fill', '#f39c12');
+                    freeRetryLabel.setAttribute('font-size', '12');
+                    freeRetryLabel.setAttribute('font-weight', 'bold');
+                    freeRetryLabel.textContent = 'ErrMaybe';
+                    svg.appendChild(freeRetryLabel);
+
+                    const freeRetryLabel2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    freeRetryLabel2.setAttribute('x', states[0].x - 110);
+                    freeRetryLabel2.setAttribute('y', states[0].y + 15);
+                    freeRetryLabel2.setAttribute('text-anchor', 'middle');
+                    freeRetryLabel2.setAttribute('fill', '#f39c12');
+                    freeRetryLabel2.setAttribute('font-size', '10');
+                    freeRetryLabel2.textContent = '(Retry)';
+                    svg.appendChild(freeRetryLabel2);
+
+                    // HELD retry (ErrMaybe on release)
+                    const heldRetryPath = `M ${states[1].x + 70} ${states[1].y - 40} A 40 40 0 1 0 ${states[1].x + 70} ${states[1].y + 40}`;
+                    const heldRetry = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    heldRetry.setAttribute('d', heldRetryPath);
+                    heldRetry.setAttribute('fill', 'none');
+                    heldRetry.setAttribute('stroke', '#f39c12');
+                    heldRetry.setAttribute('stroke-width', '2');
+                    heldRetry.setAttribute('stroke-dasharray', '5,5');
+                    heldRetry.setAttribute('marker-end', 'url(#arrowOrange)');
+                    svg.appendChild(heldRetry);
+
+                    const heldRetryLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    heldRetryLabel.setAttribute('x', states[1].x + 110);
+                    heldRetryLabel.setAttribute('y', states[1].y);
+                    heldRetryLabel.setAttribute('text-anchor', 'middle');
+                    heldRetryLabel.setAttribute('fill', '#f39c12');
+                    heldRetryLabel.setAttribute('font-size', '12');
+                    heldRetryLabel.setAttribute('font-weight', 'bold');
+                    heldRetryLabel.textContent = 'ErrMaybe';
+                    svg.appendChild(heldRetryLabel);
+
+                    const heldRetryLabel2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    heldRetryLabel2.setAttribute('x', states[1].x + 110);
+                    heldRetryLabel2.setAttribute('y', states[1].y + 15);
+                    heldRetryLabel2.setAttribute('text-anchor', 'middle');
+                    heldRetryLabel2.setAttribute('fill', '#f39c12');
+                    heldRetryLabel2.setAttribute('font-size', '10');
+                    heldRetryLabel2.textContent = '(Retry)';
+                    svg.appendChild(heldRetryLabel2);
+
+                    // ErrVersion annotations
+                    const errVersionBox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    errVersionBox.setAttribute('x', width/2 - 100);
+                    errVersionBox.setAttribute('y', height - 180);
+                    errVersionBox.setAttribute('width', 200);
+                    errVersionBox.setAttribute('height', 80);
+                    errVersionBox.setAttribute('fill', '#95a5a6');
+                    errVersionBox.setAttribute('stroke', '#2c3e50');
+                    errVersionBox.setAttribute('stroke-width', '2');
+                    errVersionBox.setAttribute('rx', '10');
+                    errVersionBox.setAttribute('opacity', '0.9');
+                    svg.appendChild(errVersionBox);
+
+                    const errVersionTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    errVersionTitle.setAttribute('x', width/2);
+                    errVersionTitle.setAttribute('y', height - 155);
+                    errVersionTitle.setAttribute('text-anchor', 'middle');
+                    errVersionTitle.setAttribute('fill', 'white');
+                    errVersionTitle.setAttribute('font-size', '14');
+                    errVersionTitle.setAttribute('font-weight', 'bold');
+                    errVersionTitle.textContent = 'ErrVersion';
+                    svg.appendChild(errVersionTitle);
+
+                    const errVersionText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    errVersionText.setAttribute('x', width/2);
+                    errVersionText.setAttribute('y', height - 135);
+                    errVersionText.setAttribute('text-anchor', 'middle');
+                    errVersionText.setAttribute('fill', 'white');
+                    errVersionText.setAttribute('font-size', '11');
+                    errVersionText.textContent = 'Lock already changed';
+                    svg.appendChild(errVersionText);
+
+                    const errVersionText2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    errVersionText2.setAttribute('x', width/2);
+                    errVersionText2.setAttribute('y', height - 118);
+                    errVersionText2.setAttribute('text-anchor', 'middle');
+                    errVersionText2.setAttribute('fill', 'white');
+                    errVersionText2.setAttribute('font-size', '11');
+                    errVersionText2.textContent = 'Return true (done)';
+                    svg.appendChild(errVersionText2);
+
+                    // Arrow markers
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+
+                    ['Blue:#3498db', 'Green:#27ae60', 'Orange:#f39c12'].forEach(item => {
+                        const [name, color] = item.split(':');
+                        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker.setAttribute('id', 'arrow' + name);
+                        marker.setAttribute('markerWidth', '10');
+                        marker.setAttribute('markerHeight', '10');
+                        marker.setAttribute('refX', '9');
+                        marker.setAttribute('refY', '3');
+                        marker.setAttribute('orient', 'auto');
+                        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                        polygon.setAttribute('fill', color);
+                        marker.appendChild(polygon);
+                        defs.appendChild(marker);
+                    });
+
+                    svg.insertBefore(defs, svg.firstChild);
+                })();
+                </script>
+            </div>
+
+            <h3>Problem-Solving Strategy</h3>
+            <ol>
+                <li><strong>Understand the version semantics</strong>: Does version increment on each successful Put?</li>
+                <li><strong>Consider what each error means</strong>:
+                    <ul>
+                        <li>OK = state changed successfully</li>
+                        <li>ErrVersion = state mismatch (who is out of date?)</li>
+                        <li>ErrMaybe = unclear, need to retry</li>
+                    </ul>
+                </li>
+                <li><strong>Think about retry logic</strong>: When should we retry vs. when are we done?</li>
+                <li><strong>Check for race conditions</strong>: What if two processes try to acquire simultaneously?</li>
+            </ol>
+        </section>
+
+        <section id="topic-snapshots">
+            <h2>Topic 3: Distributed Snapshots (Chandy-Lamport)</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>Consistent global state</strong>: A state where no message is received before it's sent (respects happens-before)</li>
+                <li><strong>Marker messages</strong>: Special messages to coordinate snapshot</li>
+                <li><strong>Process state</strong>: Captured when process receives first marker</li>
+                <li><strong>Channel state</strong>: Messages received AFTER recording state but BEFORE receiving marker on that channel</li>
+            </ul>
+
+            <h3>The Chandy-Lamport Algorithm</h3>
+            <ol>
+                <li><strong>Initiator</strong> records its state and sends markers on all outgoing channels</li>
+                <li><strong>Upon receiving first marker</strong> on channel C:
+                    <ul>
+                        <li>Record your state</li>
+                        <li>Mark channel C as empty (no in-flight messages)</li>
+                        <li>Send markers on all outgoing channels</li>
+                    </ul>
+                </li>
+                <li><strong>Upon receiving subsequent marker</strong> on channel C':
+                    <ul>
+                        <li>Record channel C' state as all messages received after recording state but before this marker</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Chandy-Lamport Snapshot Algorithm</h3>
+
+                <div style="margin-bottom: 15px;">
+                    <button onclick="stepCLSnapshot(-1)" style="padding: 8px 16px; margin: 5px; background: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer;">Previous</button>
+                    <button onclick="stepCLSnapshot(1)" style="padding: 8px 16px; margin: 5px; background: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer;">Next Step</button>
+                    <button onclick="resetCLSnapshot()" style="padding: 8px 16px; margin: 5px; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer;">Reset</button>
+                    <span id="clStepInfo" style="margin-left: 20px; font-weight: bold;">Step 0: Initial State</span>
+                </div>
+
+                <svg id="clandyLamport" width="100%" height="450" style="background: #f8f9fa; border-radius: 8px;"></svg>
+
+                <div id="clDescription" style="margin-top: 15px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Step 0:</strong> <span id="clDesc">Three processes P1, P2, P3 are running. P3 will initiate a snapshot.</span>
+                </div>
+
+                <script>
+                let clCurrentStep = 0;
+                const clSteps = [
+                    { desc: "Three processes P1, P2, P3 are running. P3 will initiate snapshot." },
+                    { desc: "P3 initiates snapshot: Records its state (S3) and sends markers on all outgoing channels." },
+                    { desc: "P1 receives first marker from P3: Records state (S1), marks channel P3→P1 as empty, sends markers." },
+                    { desc: "P2 receives first marker from P3: Records state (S2), marks channel P3→P2 as empty, sends markers." },
+                    { desc: "P1 receives second marker from P2: Records channel P2→P1 state (messages between S1 and this marker)." },
+                    { desc: "P2 receives marker from P1: Records channel P1→P2 state." },
+                    { desc: "P3 receives markers from P1 and P2: Records channel states. Snapshot complete!" }
+                ];
+
+                function drawCLSnapshot() {
+                    const svg = document.getElementById('clandyLamport');
+                    svg.innerHTML = '';
+                    const width = svg.clientWidth || 900;
+                    const height = 450;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                    const processes = [
+                        { id: 'P1', x: width * 0.2, color: '#3498db', recorded: clCurrentStep >= 2 },
+                        { id: 'P2', x: width * 0.5, color: '#27ae60', recorded: clCurrentStep >= 3 },
+                        { id: 'P3', x: width * 0.8, color: '#e74c3c', recorded: clCurrentStep >= 1 }
+                    ];
+
+                    // Draw process timelines
+                    processes.forEach((p, i) => {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', p.x);
+                        line.setAttribute('y1', 80);
+                        line.setAttribute('x2', p.x);
+                        line.setAttribute('y2', 400);
+                        line.setAttribute('stroke', p.color);
+                        line.setAttribute('stroke-width', '3');
+                        svg.appendChild(line);
+
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('x', p.x);
+                        label.setAttribute('y', 60);
+                        label.setAttribute('text-anchor', 'middle');
+                        label.setAttribute('fill', p.color);
+                        label.setAttribute('font-weight', 'bold');
+                        label.setAttribute('font-size', '18');
+                        label.textContent = p.id;
+                        svg.appendChild(label);
+
+                        // State recording indicator
+                        if (p.recorded) {
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', p.x);
+                            circle.setAttribute('cy', 100 + i * 40);
+                            circle.setAttribute('r', 25);
+                            circle.setAttribute('fill', p.color);
+                            circle.setAttribute('opacity', '0.8');
+                            svg.appendChild(circle);
+
+                            const camera = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            camera.setAttribute('x', p.x);
+                            camera.setAttribute('y', 110 + i * 40);
+                            camera.setAttribute('text-anchor', 'middle');
+                            camera.setAttribute('fill', 'white');
+                            camera.setAttribute('font-size', '20');
+                            camera.textContent = '📸';
+                            svg.appendChild(camera);
+                        }
+                    });
+
+                    // Draw markers based on current step
+                    if (clCurrentStep >= 1) {
+                        // P3 sends markers
+                        drawArrow(svg, processes[2].x, 140, processes[0].x, 180, '#e74c3c', 'M', true);
+                        drawArrow(svg, processes[2].x, 140, processes[1].x, 180, '#e74c3c', 'M', true);
+                    }
+
+                    if (clCurrentStep >= 2) {
+                        // P1 sends markers
+                        drawArrow(svg, processes[0].x, 220, processes[1].x, 260, '#3498db', 'M', true);
+                        drawArrow(svg, processes[0].x, 220, processes[2].x, 260, '#3498db', 'M', true);
+                    }
+
+                    if (clCurrentStep >= 3) {
+                        // P2 sends markers
+                        drawArrow(svg, processes[1].x, 280, processes[0].x, 320, '#27ae60', 'M', true);
+                        drawArrow(svg, processes[1].x, 280, processes[2].x, 320, '#27ae60', 'M', true);
+                    }
+
+                    // Example regular messages (for context)
+                    if (clCurrentStep <= 1) {
+                        drawArrow(svg, processes[0].x, 120, processes[1].x, 140, '#95a5a6', 'msg', false);
+                    }
+
+                    function drawArrow(svg, x1, y1, x2, y2, color, label, isMarker) {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', x1);
+                        line.setAttribute('y1', y1);
+                        line.setAttribute('x2', x2);
+                        line.setAttribute('y2', y2);
+                        line.setAttribute('stroke', color);
+                        line.setAttribute('stroke-width', isMarker ? '3' : '2');
+                        if (isMarker) line.setAttribute('stroke-dasharray', '8,4');
+                        line.setAttribute('marker-end', 'url(#arrow' + color.substring(1) + ')');
+                        svg.appendChild(line);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', (x1 + x2) / 2);
+                        text.setAttribute('y', (y1 + y2) / 2 - 5);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', color);
+                        text.setAttribute('font-size', '12');
+                        text.setAttribute('font-weight', 'bold');
+                        text.textContent = label;
+                        svg.appendChild(text);
+
+                        // Create marker if not exists
+                        let defs = svg.querySelector('defs');
+                        if (!defs) {
+                            defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                            svg.insertBefore(defs, svg.firstChild);
+                        }
+                        const markerId = 'arrow' + color.substring(1);
+                        if (!svg.querySelector('#' + markerId)) {
+                            const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                            marker.setAttribute('id', markerId);
+                            marker.setAttribute('markerWidth', '10');
+                            marker.setAttribute('markerHeight', '10');
+                            marker.setAttribute('refX', '9');
+                            marker.setAttribute('refY', '3');
+                            marker.setAttribute('orient', 'auto');
+                            const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                            polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                            polygon.setAttribute('fill', color);
+                            marker.appendChild(polygon);
+                            defs.appendChild(marker);
+                        }
+                    }
+                }
+
+                function stepCLSnapshot(direction) {
+                    clCurrentStep += direction;
+                    if (clCurrentStep < 0) clCurrentStep = 0;
+                    if (clCurrentStep >= clSteps.length) clCurrentStep = clSteps.length - 1;
+                    document.getElementById('clStepInfo').textContent = `Step ${clCurrentStep}: ${clSteps[clCurrentStep].desc.substring(0, 40)}...`;
+                    document.getElementById('clDesc').textContent = clSteps[clCurrentStep].desc;
+                    drawCLSnapshot();
+                }
+
+                function resetCLSnapshot() {
+                    clCurrentStep = 0;
+                    stepCLSnapshot(0);
+                }
+
+                setTimeout(drawCLSnapshot, 100);
+                </script>
+            </div>
+
+            <h3>Example Question: Channel States</h3>
+
+            <p><strong>Question</strong>: P3 triggers Chandy-Lamport after e3. What are channel states C2→1 and C2→3?</p>
+
+            <pre><code>P1: e1 -----> e7
+         msg   ↑
+              /
+P2: e2 -------> e5 -> e6
+                      msg
+                       ↓
+P3: e3 -----> e8
+    ^marker</code></pre>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: Depends on when markers arrive!</p>
+
+                <p><strong>Problem-Solving Strategy</strong>:</p>
+                <ol>
+                    <li><strong>Draw the execution diagram</strong> with happens-before arrows</li>
+                    <li><strong>Mark when each process records its state</strong>:
+                        <ul>
+                            <li>P3 records at e3 (initiator)</li>
+                            <li>P1 records when it receives marker from P3</li>
+                            <li>P2 records when it receives marker from P3</li>
+                        </ul>
+                    </li>
+                    <li><strong>For each channel, identify messages</strong>:
+                        <ul>
+                            <li>C2→1: Messages from P2 to P1</li>
+                            <li>Find messages sent AFTER P2 records state, BEFORE P1 receives marker on that channel</li>
+                        </ul>
+                    </li>
+                    <li><strong>List the messages</strong>: (ex, ey) where ex sends, ey receives</li>
+                </ol>
+            </div>
+
+            <h3>Example: Consistent Cuts</h3>
+
+            <p><strong>Question</strong>: Make the largest consistent cut that does NOT contain e4. What is the frontier?</p>
+
+            <div class="callout-info">
+                <p><strong>Answer</strong>: Must include all events that don't causally depend on e4, and are causally consistent.</p>
+
+                <p><strong>Problem-Solving Strategy</strong>:</p>
+                <ol>
+                    <li><strong>Identify causal dependencies</strong>: Draw happens-before arrows</li>
+                    <li><strong>Mark forbidden events</strong>: e4 and everything that happens after e4</li>
+                    <li><strong>Work backward</strong>: Find the latest event on each process that doesn't violate consistency</li>
+                    <li><strong>Check consistency</strong>: No message should cross the cut from right to left</li>
+                </ol>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: Chandy-Lamport</h4>
+                <p><strong>"MARKER-RECORD-CHANNEL"</strong></p>
+                <ul>
+                    <li><strong>MARKER</strong>: Send on all outgoing channels when you record state</li>
+                    <li><strong>RECORD</strong>: Record state on first marker received</li>
+                    <li><strong>CHANNEL</strong>: Record channel state between recording and receiving marker on that channel</li>
+                </ul>
+            </div>
+
+            <div class="callout-warning">
+                <h4>Common Mistakes</h4>
+                <ol>
+                    <li><strong>Recording channel state incorrectly</strong>: Remember, it's messages received AFTER recording state but BEFORE marker on that channel</li>
+                    <li><strong>Forgetting to mark channel as empty</strong>: If marker arrives first, channel state is empty</li>
+                    <li><strong>Not checking consistency</strong>: A consistent cut cannot have messages "going backward in time"</li>
+                </ol>
+            </div>
+        </section>
+
+        <section id="topic-lamport">
+            <h2>Topic 4: Lamport Clocks and Happens-Before</h2>
+
+            <h3>Key Concepts</h3>
+            <p><strong>Happens-before (→)</strong>: Event a → b if:</p>
+            <ol>
+                <li>a and b are in same process and a occurs before b, OR</li>
+                <li>a is send and b is receive of same message, OR</li>
+                <li>Transitivity: a → c and c → b implies a → b</li>
+            </ol>
+
+            <p><strong>Concurrent events</strong>: a || b if NOT (a → b) and NOT (b → a)</p>
+
+            <h3>Lamport Clock Rules</h3>
+            <ol>
+                <li>Increment before each event: LC(e) = LC(prev) + 1</li>
+                <li>On send: timestamp = LC(send event)</li>
+                <li>On receive: LC(receive) = max(LC(local), timestamp) + 1</li>
+            </ol>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Lamport Clocks Visualization</h3>
+                <svg id="lamportClocks" width="100%" height="400" style="background: #f8f9fa; border-radius: 8px;"></svg>
+                <div style="margin-top: 15px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Rules:</strong>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+                        <div><strong>1.</strong> Local event: LC = LC + 1</div>
+                        <div><strong>2.</strong> Send: timestamp = LC</div>
+                        <div><strong>3.</strong> Receive: LC = max(LC, msg_ts) + 1</div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('lamportClocks');
+                    const width = svg.clientWidth || 900;
+                    const height = 400;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                    const processes = [
+                        { id: 'P1', y: 100, events: [{t:50, lc:1, type:'local'}, {t:200, lc:2, type:'send', to:{p:1,i:1}}, {t:400, lc:6, type:'local'}] },
+                        { id: 'P2', y: 200, events: [{t:100, lc:1, type:'local'}, {t:250, lc:3, type:'recv', from:{p:0,i:1}}, {t:350, lc:4, type:'send', to:{p:2,i:0}}] },
+                        { id: 'P3', y: 300, events: [{t:150, lc:1, type:'local'}, {t:400, lc:5, type:'recv', from:{p:1,i:2}}] }
+                    ];
+
+                    // Draw timelines
+                    processes.forEach((p, i) => {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', 30);
+                        line.setAttribute('y1', p.y);
+                        line.setAttribute('x2', width - 30);
+                        line.setAttribute('y2', p.y);
+                        line.setAttribute('stroke', '#bdc3c7');
+                        line.setAttribute('stroke-width', '2');
+                        svg.appendChild(line);
+
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('x', 15);
+                        label.setAttribute('y', p.y + 5);
+                        label.setAttribute('fill', '#2c3e50');
+                        label.setAttribute('font-weight', 'bold');
+                        label.textContent = p.id;
+                        svg.appendChild(label);
+
+                        // Draw events
+                        p.events.forEach((e, j) => {
+                            const x = 50 + e.t;
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', x);
+                            circle.setAttribute('cy', p.y);
+                            circle.setAttribute('r', 15);
+                            circle.setAttribute('fill', e.type === 'send' ? '#3498db' : e.type === 'recv' ? '#27ae60' : '#95a5a6');
+                            circle.setAttribute('stroke', '#2c3e50');
+                            circle.setAttribute('stroke-width', '2');
+                            svg.appendChild(circle);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', x);
+                            text.setAttribute('y', p.y + 5);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', 'white');
+                            text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('font-size', '12');
+                            text.textContent = e.lc;
+                            svg.appendChild(text);
+
+                            // Draw messages
+                            if (e.type === 'send' && e.to) {
+                                const toProc = processes[e.to.p];
+                                const toEvt = toProc.events[e.to.i];
+                                const toX = 50 + toEvt.t;
+
+                                const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                                arrow.setAttribute('x1', x);
+                                arrow.setAttribute('y1', p.y);
+                                arrow.setAttribute('x2', toX);
+                                arrow.setAttribute('y2', toProc.y);
+                                arrow.setAttribute('stroke', '#e74c3c');
+                                arrow.setAttribute('stroke-width', '2');
+                                arrow.setAttribute('marker-end', 'url(#arrowLC)');
+                                svg.appendChild(arrow);
+
+                                const msgLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                                msgLabel.setAttribute('x', (x + toX) / 2);
+                                msgLabel.setAttribute('y', (p.y + toProc.y) / 2 - 5);
+                                msgLabel.setAttribute('text-anchor', 'middle');
+                                msgLabel.setAttribute('fill', '#e74c3c');
+                                msgLabel.setAttribute('font-size', '11');
+                                msgLabel.setAttribute('font-weight', 'bold');
+                                msgLabel.textContent = `ts=${e.lc}`;
+                                svg.appendChild(msgLabel);
+                            }
+                        });
+                    });
+
+                    // Arrow marker
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                    marker.setAttribute('id', 'arrowLC');
+                    marker.setAttribute('markerWidth', '10');
+                    marker.setAttribute('markerHeight', '10');
+                    marker.setAttribute('refX', '9');
+                    marker.setAttribute('refY', '3');
+                    marker.setAttribute('orient', 'auto');
+                    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    polygon.setAttribute('points', '0 0, 10 3, 0 6');
+                    polygon.setAttribute('fill', '#e74c3c');
+                    marker.appendChild(polygon);
+                    defs.appendChild(marker);
+                    svg.insertBefore(defs, svg.firstChild);
+                })();
+                </script>
+            </div>
+
+            <h3>Example Question: Lamport Clocks</h3>
+
+            <p><strong>Question</strong>: Given this execution, what are the Lamport clock values?</p>
+
+            <pre><code>P1: e1 -> e2 ----msg----> e4
+P2:       e3 <---msg----- e5</code></pre>
+
+            <div class="callout-info">
+                <h4>Example Solution</h4>
+                <p><strong>Answer</strong> (assuming all start at 0):</p>
+                <pre><code>P1: e1 (LC=1) -> e2 (LC=2, send msg to P2)
+P2: e3 (LC=1) -> receive msg (LC=max(1,2)+1=3) -> e4 (LC=4)</code></pre>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: Lamport Clock Update</h4>
+                <p><strong>"INCREMENT-MAX-INCREMENT"</strong></p>
+                <ul>
+                    <li><strong>INCREMENT</strong>: Before local event</li>
+                    <li><strong>MAX</strong>: On receive, take max(local, received timestamp)</li>
+                    <li><strong>INCREMENT</strong>: Then add 1</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="topic-chord">
+            <h2>Topic 5: Chord DHT (Distributed Hash Table)</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>Consistent hashing</strong>: Keys and nodes mapped to same circular key space</li>
+                <li><strong>Successor(k)</strong>: First node at or after position k (clockwise)</li>
+                <li><strong>Finger table</strong>: Shortcuts to speed up lookups
+                    <ul>
+                        <li>Finger[i] = successor(n + 2^i)</li>
+                    </ul>
+                </li>
+                <li><strong>Data location</strong>: Key k stored at successor(k)</li>
+                <li><strong>Lookup complexity</strong>: O(log N) hops with finger tables</li>
+            </ul>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Chord DHT Ring (5-bit keyspace, m=5)</h3>
+                <div style="display: flex; gap: 20px;">
+                    <div style="flex: 2;">
+                        <svg id="chordRing" width="100%" height="500" style="background: #f8f9fa; border-radius: 8px;"></svg>
+                    </div>
+                    <div id="fingerTablePanel" style="flex: 1; padding: 15px; background: rgba(52, 152, 219, 0.1); border-radius: 8px; display: none;">
+                        <h4 style="margin-top: 0;">Finger Table</h4>
+                        <div id="fingerTableContent"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Click a node</strong> to see its finger table. Nodes: 6, 11, 12, 17, 20, 24, 28. Keys are stored at successor(key).
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('chordRing');
+                    const width = 500;
+                    const height = 500;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+                    const centerX = width / 2;
+                    const centerY = height / 2;
+                    const radius = 180;
+                    const m = 5;
+                    const maxKey = Math.pow(2, m);
+                    const nodes = [6, 11, 12, 17, 20, 24, 28];
+
+                    function successor(k, nodeList) {
+                        for (let n of nodeList) {
+                            if (n >= k) return n;
+                        }
+                        return nodeList[0];
+                    }
+
+                    function getAngle(key) {
+                        return (key / maxKey) * 2 * Math.PI - Math.PI / 2;
+                    }
+
+                    function getPos(key, r) {
+                        const angle = getAngle(key);
+                        return { x: centerX + r * Math.cos(angle), y: centerY + r * Math.sin(angle) };
+                    }
+
+                    // Draw ring
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', centerX);
+                    circle.setAttribute('cy', centerY);
+                    circle.setAttribute('r', radius);
+                    circle.setAttribute('fill', 'none');
+                    circle.setAttribute('stroke', '#bdc3c7');
+                    circle.setAttribute('stroke-width', '2');
+                    svg.appendChild(circle);
+
+                    // Draw key positions (0-31)
+                    for (let i = 0; i < maxKey; i++) {
+                        const pos = getPos(i, radius);
+                        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        dot.setAttribute('cx', pos.x);
+                        dot.setAttribute('cy', pos.y);
+                        dot.setAttribute('r', 2);
+                        dot.setAttribute('fill', '#ecf0f1');
+                        svg.appendChild(dot);
+
+                        if (i % 4 === 0) {
+                            const labelPos = getPos(i, radius + 25);
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', labelPos.x);
+                            text.setAttribute('y', labelPos.y + 4);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', '#7f8c8d');
+                            text.setAttribute('font-size', '11');
+                            text.textContent = i;
+                            svg.appendChild(text);
+                        }
+                    }
+
+                    // Draw nodes
+                    nodes.forEach(n => {
+                        const pos = getPos(n, radius);
+                        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        g.setAttribute('style', 'cursor: pointer;');
+
+                        const nodeCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        nodeCircle.setAttribute('cx', pos.x);
+                        nodeCircle.setAttribute('cy', pos.y);
+                        nodeCircle.setAttribute('r', 18);
+                        nodeCircle.setAttribute('fill', '#3498db');
+                        nodeCircle.setAttribute('stroke', '#2c3e50');
+                        nodeCircle.setAttribute('stroke-width', '2');
+                        g.appendChild(nodeCircle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', pos.x);
+                        text.setAttribute('y', pos.y + 5);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', 'white');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('font-size', '13');
+                        text.textContent = n;
+                        g.appendChild(text);
+
+                        g.addEventListener('click', () => showFingerTable(n));
+                        svg.appendChild(g);
+                    });
+
+                    function showFingerTable(node) {
+                        const panel = document.getElementById('fingerTablePanel');
+                        const content = document.getElementById('fingerTableContent');
+                        panel.style.display = 'block';
+
+                        let html = `<p style="font-weight: bold; color: #3498db;">Node ${node}</p><table style="width: 100%; font-size: 12px; border-collapse: collapse;">`;
+                        html += '<tr style="background: #3498db; color: white;"><th style="padding: 5px;">i</th><th>n+2^i</th><th>Succ</th></tr>';
+
+                        for (let i = 0; i < m; i++) {
+                            const start = (node + Math.pow(2, i)) % maxKey;
+                            const succ = successor(start, nodes);
+                            html += `<tr style="border-bottom: 1px solid #ecf0f1;"><td style="padding: 5px;">${i}</td><td>${start}</td><td>${succ}</td></tr>`;
+                        }
+                        html += '</table>';
+                        content.innerHTML = html;
+                    }
+                })();
+                </script>
+            </div>
+
+            <h3>Example Question: Node Departure</h3>
+
+            <p><strong>Question</strong>: In a 5-bit key space (mod 32) with nodes P6, P11, P12, P17, P20, P24, P28: If P11 departs (without replication), which keys are irrecoverably lost?</p>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: Keys that P11 was responsible for: (P6, P11]</p>
+                <p>That's keys <strong>7, 8, 9, 10, 11</strong></p>
+
+                <p><strong>Explanation</strong>:</p>
+                <ul>
+                    <li>P11 stores keys in range (predecessor(P11), P11]</li>
+                    <li>predecessor(P11) = P6</li>
+                    <li>Range: (6, 11] = {7, 8, 9, 10, 11}</li>
+                    <li>When P11 departs, these keys are lost if not replicated</li>
+                </ul>
+            </div>
+
+            <h3>Problem-Solving Strategy</h3>
+            <ol>
+                <li><strong>Identify the key space</strong>: What's the modulo value?</li>
+                <li><strong>Find successor/predecessor</strong>: Use clockwise traversal</li>
+                <li><strong>Determine responsibility range</strong>: Node N is responsible for (predecessor(N), N]</li>
+                <li><strong>Check for replication</strong>: Without replication, departure = data loss</li>
+            </ol>
+
+            <div class="callout-success">
+                <h4>Memory Aid: Chord Responsibility</h4>
+                <p><strong>"SUCC-PRED-RANGE"</strong></p>
+                <ul>
+                    <li><strong>SUCC</strong>(k): First node clockwise from k (includes k)</li>
+                    <li><strong>PRED</strong>(N): Node immediately counter-clockwise from N</li>
+                    <li><strong>RANGE</strong>: Node N stores keys in (PRED(N), N]</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="topic-lattice">
+            <h2>Topic 6: Lattice of Consistent States</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>Lattice</strong>: DAG showing all possible consistent global states</li>
+                <li><strong>Nodes</strong>: Each node is a consistent global state (combination of process states)</li>
+                <li><strong>Edges</strong>: Transition from one state to another by advancing one process</li>
+                <li><strong>Bottom</strong>: Initial state (all processes at start)</li>
+                <li><strong>Top</strong>: Final state (all processes completed)</li>
+            </ul>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Lattice of Consistent Global States</h3>
+                <svg id="lattice" width="100%" height="450" style="background: #f8f9fa; border-radius: 8px;"></svg>
+                <div style="margin-top: 15px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Concept:</strong> Each node represents a global state (e1, e2, e3). Edges show process advancement. This shows all possible consistent cuts through a distributed execution.
+                </div>
+                <script>
+                (function() {
+                    const svg = document.getElementById('lattice');
+                    const width = svg.clientWidth || 800;
+                    const height = 450;
+                    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+                    // Simple lattice example with 2 events per process
+                    const states = [
+                        {state: [0,0,0], x: width/2, y: 50},
+                        {state: [1,0,0], x: width*0.3, y: 150},
+                        {state: [0,1,0], x: width*0.5, y: 150},
+                        {state: [0,0,1], x: width*0.7, y: 150},
+                        {state: [1,1,0], x: width*0.3, y: 250},
+                        {state: [1,0,1], x: width*0.5, y: 250},
+                        {state: [0,1,1], x: width*0.7, y: 250},
+                        {state: [1,1,1], x: width/2, y: 350}
+                    ];
+
+                    const edges = [
+                        [0,1], [0,2], [0,3],
+                        [1,4], [1,5],
+                        [2,4], [2,6],
+                        [3,5], [3,6],
+                        [4,7], [5,7], [6,7]
+                    ];
+
+                    // Draw edges
+                    edges.forEach(([from, to]) => {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', states[from].x);
+                        line.setAttribute('y1', states[from].y);
+                        line.setAttribute('x2', states[to].x);
+                        line.setAttribute('y2', states[to].y);
+
+                        // Determine which process advanced
+                        let color = '#bdc3c7';
+                        for (let i = 0; i < 3; i++) {
+                            if (states[to].state[i] > states[from].state[i]) {
+                                color = ['#e74c3c', '#3498db', '#27ae60'][i];
+                                break;
+                            }
+                        }
+
+                        line.setAttribute('stroke', color);
+                        line.setAttribute('stroke-width', '2');
+                        svg.appendChild(line);
+                    });
+
+                    // Draw state nodes
+                    states.forEach(s => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', s.x);
+                        circle.setAttribute('cy', s.y);
+                        circle.setAttribute('r', 20);
+                        circle.setAttribute('fill', '#fff');
+                        circle.setAttribute('stroke', '#2c3e50');
+                        circle.setAttribute('stroke-width', '2');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', s.x);
+                        text.setAttribute('y', s.y + 4);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', '#2c3e50');
+                        text.setAttribute('font-size', '10');
+                        text.setAttribute('font-weight', 'bold');
+                        text.textContent = `(${s.state.join(',')})`;
+                        svg.appendChild(text);
+                    });
+
+                    // Legend
+                    const legend = [{c:'#e74c3c',l:'P1'},{c:'#3498db',l:'P2'},{c:'#27ae60',l:'P3'}];
+                    legend.forEach((item, i) => {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', 30 + i*80);
+                        line.setAttribute('y1', height-20);
+                        line.setAttribute('x2', 55 + i*80);
+                        line.setAttribute('y2', height-20);
+                        line.setAttribute('stroke', item.c);
+                        line.setAttribute('stroke-width', '3');
+                        svg.appendChild(line);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', 60 + i*80);
+                        text.setAttribute('y', height-16);
+                        text.setAttribute('fill', '#2c3e50');
+                        text.setAttribute('font-size', '12');
+                        text.textContent = item.l;
+                        svg.appendChild(text);
+                    });
+                })();
+                </script>
+            </div>
+
+            <h3>Example Question: Lattice Size</h3>
+
+            <p><strong>Question</strong>: For an execution with P1, P2, P3 each having events, how many nodes in the lattice?</p>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: Depends on the execution! Count all consistent global states.</p>
+
+                <p><strong>Problem-Solving Strategy</strong>:</p>
+                <ol>
+                    <li><strong>List events per process</strong>: P1: {e1, e7}, P2: {e2, e5, e6}, P3: {e3, e8}</li>
+                    <li><strong>Start from bottom</strong>: (e1, e2, e3) or (0, 0, 0) if counting events before</li>
+                    <li><strong>Build lattice level by level</strong>:
+                        <ul>
+                            <li>Each level represents advancing one process by one event</li>
+                            <li>Only add if consistent (respects happens-before)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Count all reachable states</strong></li>
+                </ol>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid</h4>
+                <p><strong>"LATTICE = All Legal Advancement Paths"</strong></p>
+            </div>
+        </section>
+
+        <section id="topic-bitcoin">
+            <h2>Topic 7: Bitcoin and Proof-of-Work</h2>
+
+            <h3>Key Concepts</h3>
+            <p><strong>Blockchain</strong>: Linked list of blocks, each containing:</p>
+            <ul>
+                <li>Previous block hash</li>
+                <li>Transactions</li>
+                <li>Nonce</li>
+                <li>Timestamp</li>
+            </ul>
+
+            <ul>
+                <li><strong>Proof-of-Work</strong>: Find nonce such that hash(block) &lt; target</li>
+                <li><strong>Mining</strong>: Process of finding valid nonce</li>
+                <li><strong>Confirmation time</strong>: Average time for a transaction to be included in a block</li>
+            </ul>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Bitcoin Blockchain Structure</h3>
+                <div id="blockchain" style="display: flex; gap: 15px; overflow-x: auto; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <!-- Blocks will be added by JavaScript -->
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 4px;">
+                    <strong>Key Concepts:</strong> Each block contains previous hash, transactions, nonce, and timestamp. Hash must have leading zeros (Proof-of-Work). Average confirmation time ≈ 10 minutes.
+                </div>
+                <script>
+                (function() {
+                    const container = document.getElementById('blockchain');
+                    const blocks = [
+                        { num: 0, prevHash: '0000...', nonce: 12345, txns: ['Genesis'], hash: '0000abc...' },
+                        { num: 1, prevHash: '0000abc...', nonce: 67890, txns: ['A→B: 2 BTC'], hash: '0000def...' },
+                        { num: 2, prevHash: '0000def...', nonce: 54321, txns: ['B→C: 1 BTC', 'A→C: 0.5 BTC'], hash: '0000ghi...' },
+                        { num: 3, prevHash: '0000ghi...', nonce: 98765, txns: ['C→D: 3 BTC'], hash: '0000jkl...' }
+                    ];
+
+                    blocks.forEach((block, i) => {
+                        const blockDiv = document.createElement('div');
+                        blockDiv.style.cssText = 'min-width: 200px; padding: 15px; background: white; border: 2px solid #3498db; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);';
+
+                        blockDiv.innerHTML = `
+                            <div style="font-weight: bold; color: #3498db; margin-bottom: 10px; border-bottom: 2px solid #3498db; padding-bottom: 5px;">Block ${block.num}</div>
+                            <div style="font-size: 11px; margin-bottom: 5px;"><strong>Prev:</strong> ${block.prevHash}</div>
+                            <div style="font-size: 11px; margin-bottom: 5px;"><strong>Nonce:</strong> ${block.nonce}</div>
+                            <div style="font-size: 11px; margin-bottom: 5px;"><strong>Txns:</strong></div>
+                            <ul style="font-size: 10px; margin: 5px 0; padding-left: 15px;">
+                                ${block.txns.map(tx => `<li>${tx}</li>`).join('')}
+                            </ul>
+                            <div style="font-size: 11px; font-weight: bold; color: #27ae60; margin-top: 8px; padding-top: 5px; border-top: 1px solid #ecf0f1;"><strong>Hash:</strong> ${block.hash}</div>
+                        `;
+
+                        container.appendChild(blockDiv);
+
+                        if (i < blocks.length - 1) {
+                            const arrow = document.createElement('div');
+                            arrow.style.cssText = 'align-self: center; font-size: 24px; color: #e74c3c;';
+                            arrow.textContent = '→';
+                            container.appendChild(arrow);
+                        }
+                    });
+                })();
+                </script>
+            </div>
+
+            <h3>Example Question: Bitcoin Misconceptions</h3>
+
+            <p><strong>Question</strong>: Which statements are true?</p>
+            <ul>
+                <li>A. Arranging transactions can make mining easier</li>
+                <li>B. Average confirmation time is 37.5 hours</li>
+                <li>C. Adjacent blocks can't have same nonce</li>
+                <li>D. Previous hash could be 16-bit checksum</li>
+            </ul>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: E. None of the above</p>
+
+                <p><strong>Explanation</strong>:</p>
+                <ul>
+                    <li><strong>A is false</strong>: Transaction order doesn't affect difficulty; PoW difficulty is independent</li>
+                    <li><strong>B is false</strong>: Avg confirmation time ≈ 10 min (time to mine one block), NOT 37.5 hours
+                        <ul>
+                            <li>Calculation error: They computed total blockchain time / total transactions, which is wrong</li>
+                        </ul>
+                    </li>
+                    <li><strong>C is false</strong>: Nonces are independent per block; coincidentally same nonce is possible</li>
+                    <li><strong>D is false</strong>: Previous hash must be cryptographically secure (256-bit), not 16-bit</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: Bitcoin Basics</h4>
+                <p><strong>"HASH-NONCE-MINE-CHAIN"</strong></p>
+                <ul>
+                    <li><strong>HASH</strong>: SHA-256, must be below target</li>
+                    <li><strong>NONCE</strong>: Random number, try until hash is valid</li>
+                    <li><strong>MINE</strong>: Computational work to find valid nonce</li>
+                    <li><strong>CHAIN</strong>: Blocks linked by previous hash</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="topic-mapreduce">
+            <h2>Topic 8: MapReduce Fault Tolerance</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>Worker failures</strong>: Detected by master via heartbeat/timeout</li>
+                <li><strong>Crash-stop model</strong>: Workers either produce correct output or stop</li>
+                <li><strong>Re-execution</strong>: Failed tasks re-executed on different workers</li>
+                <li><strong>Determinism</strong>: Map/Reduce functions must be deterministic</li>
+            </ul>
+
+            <h3>Example Question: Byzantine Faults</h3>
+
+            <p><strong>Question</strong>: If workers can produce incorrect results (not just crash), how to ensure correctness? Assume at most one faulty worker.</p>
+
+            <div class="callout-info">
+                <h4>Answer</h4>
+                <p><strong>Answer</strong>: Replicate each task twice on different workers. If results differ, run a third time on another worker (majority voting).</p>
+
+                <p><strong>Explanation</strong>:</p>
+                <ul>
+                    <li>With at most 1 faulty worker, 2 correct workers will agree</li>
+                    <li>If 2 match, use that result</li>
+                    <li>If 2 differ, run 3rd instance (2 out of 3 will match)</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Memory Aid: MapReduce Fault Tolerance</h4>
+                <p><strong>"DETECT-REEXECUTE-DETERMINISTIC"</strong></p>
+            </div>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">MapReduce Fault Tolerance Comparison</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div style="padding: 15px; background: rgba(231, 76, 60, 0.1); border-radius: 8px;">
+                        <h4 style="color: #e74c3c; margin-top: 0;">Crash-Stop Model</h4>
+                        <div style="padding: 10px; background: white; border-radius: 5px; margin-bottom: 10px;">
+                            <div style="font-size: 13px;"><strong>Master</strong></div>
+                            <div style="margin: 10px 0; font-size: 12px;">Assigns task to Worker 1</div>
+                            <div style="padding: 8px; background: #ecf0f1; border-radius: 4px; margin: 5px 0; text-decoration: line-through; opacity: 0.6;">Worker 1: Processing... ❌ CRASH</div>
+                            <div style="padding: 8px; background: #e74c3c; color: white; border-radius: 4px; margin: 5px 0; font-size: 11px;">⏱️ Timeout detected!</div>
+                            <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; margin: 5px 0;">Worker 2: ✓ Complete</div>
+                        </div>
+                        <div style="font-size: 11px; color: #7f8c8d;"><strong>Overhead:</strong> 1 re-execution<br><strong>Assumption:</strong> Workers fail-stop correctly</div>
+                    </div>
+                    <div style="padding: 15px; background: rgba(52, 152, 219, 0.1); border-radius: 8px;">
+                        <h4 style="color: #3498db; margin-top: 0;">Byzantine Model</h4>
+                        <div style="padding: 10px; background: white; border-radius: 5px; margin-bottom: 10px;">
+                            <div style="font-size: 13px;"><strong>Master (Replicate 3x)</strong></div>
+                            <div style="margin: 10px 0; font-size: 12px;">Execute task in parallel:</div>
+                            <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; margin: 3px 0; font-size: 11px;">Worker A: Result = 42 ✓</div>
+                            <div style="padding: 8px; background: #e74c3c; color: white; border-radius: 4px; margin: 3px 0; font-size: 11px;">Worker B: Result = 99 ⚠️ Byzantine!</div>
+                            <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; margin: 3px 0; font-size: 11px;">Worker C: Result = 42 ✓</div>
+                            <div style="padding: 8px; background: #f39c12; color: white; border-radius: 4px; margin: 5px 0; text-align: center; font-weight: bold;">VOTE: 42 (2/3 majority)</div>
+                        </div>
+                        <div style="font-size: 11px; color: #7f8c8d;"><strong>Overhead:</strong> 3x executions<br><strong>Tolerance:</strong> f=1 faulty worker</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="topic-mutex">
+            <h2>Topic 9: Distributed Mutual Exclusion</h2>
+
+            <h3>Key Concepts</h3>
+            <ul>
+                <li><strong>Safety</strong>: At most one process in critical section at a time</li>
+                <li><strong>Liveness</strong>: Every request eventually granted</li>
+                <li><strong>Fairness</strong>: Requests granted in some fair order (e.g., timestamp order)</li>
+            </ul>
+
+            <h3>Algorithms</h3>
+            <ol>
+                <li><strong>Centralized</strong>: Coordinator grants locks (single point of failure)</li>
+                <li><strong>Ricart-Agrawala</strong>: Request permission from all; enter when all reply OK</li>
+                <li><strong>Token ring</strong>: Token circulates; holder can enter CS</li>
+            </ol>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Distributed Mutual Exclusion Algorithms</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                    <div style="padding: 15px; background: rgba(231, 76, 60, 0.1); border-radius: 8px;">
+                        <h4 style="color: #e74c3c; margin-top: 0; font-size: 14px;">Centralized</h4>
+                        <div style="text-align: center; margin: 15px 0;">
+                            <div style="display: inline-block; padding: 10px 15px; background: #e74c3c; color: white; border-radius: 5px; font-weight: bold; margin-bottom: 10px;">Coordinator</div>
+                            <div style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">↓ REQUEST ↑ GRANT</div>
+                            <div style="display: flex; justify-content: center; gap: 10px;">
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P1</div>
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P2</div>
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P3</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 11px;"><strong>Messages:</strong> 3 per CS<br><strong>Fault:</strong> SPOF ⚠️</div>
+                    </div>
+                    <div style="padding: 15px; background: rgba(52, 152, 219, 0.1); border-radius: 8px;">
+                        <h4 style="color: #3498db; margin-top: 0; font-size: 14px;">Ricart-Agrawala</h4>
+                        <div style="text-align: center; margin: 15px 0;">
+                            <div style="font-size: 11px; color: #7f8c8d; margin-bottom: 10px;">Broadcast REQUEST to all</div>
+                            <div style="display: flex; justify-content: center; gap: 5px; margin: 10px 0;">
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P1</div>
+                                <div style="font-size: 12px;">↔</div>
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P2</div>
+                                <div style="font-size: 12px;">↔</div>
+                                <div style="padding: 8px; background: #3498db; color: white; border-radius: 4px; font-size: 11px;">P3</div>
+                            </div>
+                            <div style="font-size: 11px; color: #7f8c8d;">Collect all OK replies</div>
+                        </div>
+                        <div style="font-size: 11px;"><strong>Messages:</strong> 2(N-1)<br><strong>Fault:</strong> Decentralized ✓</div>
+                    </div>
+                    <div style="padding: 15px; background: rgba(39, 174, 96, 0.1); border-radius: 8px;">
+                        <h4 style="color: #27ae60; margin-top: 0; font-size: 14px;">Token Ring</h4>
+                        <div style="text-align: center; margin: 15px 0;">
+                            <div style="display: inline-block; padding: 8px 12px; background: #f39c12; color: white; border-radius: 15px; font-weight: bold; font-size: 11px; margin-bottom: 10px;">🎫 TOKEN</div>
+                            <div style="display: flex; justify-content: center; align-items: center; gap: 5px;">
+                                <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; font-size: 11px;">P1</div>
+                                <div style="font-size: 14px;">→</div>
+                                <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; font-size: 11px;">P2</div>
+                                <div style="font-size: 14px;">→</div>
+                                <div style="padding: 8px; background: #27ae60; color: white; border-radius: 4px; font-size: 11px;">P3</div>
+                                <div style="font-size: 14px;">⤵</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 11px;"><strong>Messages:</strong> 1 to N<br><strong>Fault:</strong> Token loss ⚠️</div>
+                    </div>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr style="background: #3498db; color: white;">
+                            <th style="padding: 8px; border: 1px solid #ecf0f1;">Algorithm</th>
+                            <th style="padding: 8px; border: 1px solid #ecf0f1;">Messages/CS</th>
+                            <th style="padding: 8px; border: 1px solid #ecf0f1;">Delay</th>
+                            <th style="padding: 8px; border: 1px solid #ecf0f1;">Failure Mode</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">Centralized</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">3</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">2 RTT</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">SPOF coordinator</td>
+                        </tr>
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">Ricart-Agrawala</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">2(N-1)</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">1 RTT</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">Process crash blocks</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">Token Ring</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">1 to N</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">0 to N</td>
+                            <td style="padding: 8px; border: 1px solid #ecf0f1;">Token loss</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <h3>Problem-Solving Strategy</h3>
+            <ol>
+                <li><strong>Identify safety violations</strong>: Can two processes be in CS simultaneously?</li>
+                <li><strong>Check liveness</strong>: Can deadlock occur? Can starvation occur?</li>
+                <li><strong>Analyze message complexity</strong>: How many messages per critical section entry?</li>
+            </ol>
+        </section>
+
+        <section id="problem-solving">
+            <h2>General Problem-Solving Framework</h2>
+
+            <h3>For ANY Distributed Systems Question:</h3>
+
+            <ol>
+                <li><strong>Understand the failure model</strong>:
+                    <ul>
+                        <li>Can messages be lost/duplicated/reordered?</li>
+                        <li>Can processes crash?</li>
+                        <li>Are operations idempotent?</li>
+                    </ul>
+                </li>
+                <li><strong>Draw diagrams</strong>:
+                    <ul>
+                        <li>Timeline diagrams for message passing</li>
+                        <li>Happens-before arrows for causality</li>
+                        <li>State machines for protocols</li>
+                    </ul>
+                </li>
+                <li><strong>Check edge cases</strong>:
+                    <ul>
+                        <li>n=1 (single process)</li>
+                        <li>All processes fail</li>
+                        <li>All messages lost</li>
+                        <li>Maximum delay/reordering</li>
+                    </ul>
+                </li>
+                <li><strong>Trace through scenarios</strong>:
+                    <ul>
+                        <li>Best case</li>
+                        <li>Worst case</li>
+                        <li>Failure cases</li>
+                        <li>Concurrent operations</li>
+                    </ul>
+                </li>
+                <li><strong>Verify assumptions</strong>:
+                    <ul>
+                        <li>What does the question assume?</li>
+                        <li>What are you assuming?</li>
+                        <li>State them clearly!</li>
+                    </ul>
+                </li>
+            </ol>
+        </section>
+
+        <section id="quick-reference">
+            <h2>Quick Reference: Key Formulas and Facts</h2>
+
+            <h3>Chord</h3>
+            <ul>
+                <li>Key space: [0, 2^m - 1]</li>
+                <li>Node N responsible for: (predecessor(N), N]</li>
+                <li>Finger[i] = successor(n + 2^i mod 2^m)</li>
+                <li>Lookup complexity: O(log N) hops</li>
+            </ul>
+
+            <h3>Lamport Clocks</h3>
+            <ul>
+                <li>Local event: LC = LC + 1</li>
+                <li>Send: timestamp = LC</li>
+                <li>Receive: LC = max(LC, timestamp) + 1</li>
+                <li>If a → b, then LC(a) &lt; LC(b)</li>
+                <li>But LC(a) &lt; LC(b) does NOT imply a → b</li>
+            </ul>
+
+            <h3>Vector Clocks</h3>
+            <ul>
+                <li>Local event: VC[i] = VC[i] + 1</li>
+                <li>Send: send entire VC</li>
+                <li>Receive: VC[i] = max(VC[i], received_VC[i]) for all i, then VC[i] = VC[i] + 1</li>
+                <li>a → b iff VC(a) &lt; VC(b) (component-wise)</li>
+            </ul>
+
+            <h3>MapReduce</h3>
+            <ul>
+                <li>Map: (K1, V1) → list(K2, V2)</li>
+                <li>Reduce: (K2, list(V2)) → list(V3)</li>
+                <li>Fault tolerance: Re-execute failed tasks</li>
+                <li>Determinism required for correctness</li>
+            </ul>
+
+            <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">Quick Reference Formula Dashboard</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div onclick="toggleFormula('chord')" style="padding: 15px; background: rgba(52, 152, 219, 0.1); border-radius: 8px; cursor: pointer;">
+                        <h4 style="color: #3498db; margin: 0; display: flex; justify-content: space-between;"><span>Chord DHT</span><span id="chord-icon">▼</span></h4>
+                        <div id="chord-content" style="margin-top: 10px; font-size: 13px;">
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Key space:</strong> [0, 2<sup>m</sup>-1]</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Finger[i]:</strong> successor(n + 2<sup>i</sup> mod 2<sup>m</sup>)</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Responsibility:</strong> (predecessor(N), N]</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Lookup:</strong> O(log N) hops</div>
+                        </div>
+                    </div>
+                    <div onclick="toggleFormula('lamport')" style="padding: 15px; background: rgba(231, 76, 60, 0.1); border-radius: 8px; cursor: pointer;">
+                        <h4 style="color: #e74c3c; margin: 0; display: flex; justify-content: space-between;"><span>Lamport Clocks</span><span id="lamport-icon">▼</span></h4>
+                        <div id="lamport-content" style="margin-top: 10px; font-size: 13px;">
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Local event:</strong> LC = LC + 1</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Send:</strong> timestamp = LC</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Receive:</strong> LC = max(LC, ts) + 1</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Property:</strong> If a→b then LC(a) < LC(b)</div>
+                        </div>
+                    </div>
+                    <div onclick="toggleFormula('vector')" style="padding: 15px; background: rgba(39, 174, 96, 0.1); border-radius: 8px; cursor: pointer;">
+                        <h4 style="color: #27ae60; margin: 0; display: flex; justify-content: space-between;"><span>Vector Clocks</span><span id="vector-icon">▼</span></h4>
+                        <div id="vector-content" style="margin-top: 10px; font-size: 13px;">
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Local:</strong> VC[i] = VC[i] + 1</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Send:</strong> send entire VC</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Receive:</strong> VC[i]=max(VC[i],received[i]) ∀i, then VC[i]++</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Property:</strong> a→b iff VC(a) < VC(b)</div>
+                        </div>
+                    </div>
+                    <div onclick="toggleFormula('byzantine')" style="padding: 15px; background: rgba(243, 156, 18, 0.1); border-radius: 8px; cursor: pointer;">
+                        <h4 style="color: #f39c12; margin: 0; display: flex; justify-content: space-between;"><span>Byzantine Fault Tolerance</span><span id="byzantine-icon">▼</span></h4>
+                        <div id="byzantine-content" style="margin-top: 10px; font-size: 13px;">
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Min nodes:</strong> 3f + 1</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>f:</strong> max faulty nodes</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Agreement:</strong> Need 2f + 1 votes</div>
+                            <div style="padding: 8px; background: white; border-radius: 4px; margin: 5px 0;"><strong>Example:</strong> f=1 → need 4 nodes</div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                function toggleFormula(id) {
+                    const content = document.getElementById(id + '-content');
+                    const icon = document.getElementById(id + '-icon');
+                    if (content.style.display === 'none') {
+                        content.style.display = 'block';
+                        icon.textContent = '▼';
+                    } else {
+                        content.style.display = 'none';
+                        icon.textContent = '▶';
+                    }
+                }
+                </script>
+            </div>
+        </section>
+
+        <section id="study-tips">
+            <h2>Study Tips</h2>
+
+            <h3>Week Before Exam</h3>
+            <ol>
+                <li><strong>Review all lecture slides</strong> - Make note cards for each algorithm</li>
+                <li><strong>Redo all iClicker questions</strong> - These are excellent practice!</li>
+                <li><strong>Review lab implementations</strong> - Understand the design choices</li>
+                <li><strong>Practice drawing diagrams</strong> - Snapshots, happens-before, message passing</li>
+                <li><strong>Form study groups</strong> - Explain concepts to each other</li>
+            </ol>
+
+            <h3>Day Before Exam</h3>
+            <ol>
+                <li><strong>Review this study guide</strong> - Focus on memory aids</li>
+                <li><strong>Skim lecture slides</strong> - Refresh high-level concepts</li>
+                <li><strong>Get good sleep</strong> - Don't cram all night!</li>
+                <li><strong>Prepare materials</strong> - Pens, pencils, calculator (if allowed)</li>
+            </ol>
+
+            <h3>During Exam</h3>
+            <ol>
+                <li><strong>Read all questions first</strong> - Plan your time</li>
+                <li><strong>Start with what you know</strong> - Build momentum</li>
+                <li><strong>Show your work</strong> - Partial credit!</li>
+                <li><strong>Draw diagrams</strong> - They help you think and show understanding</li>
+                <li><strong>Double-check answers</strong> - Especially calculations</li>
+            </ol>
+        </section>
+
+        <section id="practice-questions">
+            <h2>Practice Questions (Based on Lecture 21)</h2>
+
+            <h3>Question 1: RPC Semantics (Warm-up)</h3>
+            <p><strong>Given</strong>: Simple RPC with retries, unreliable network, server may crash/reboot</p>
+
+            <pre><code>// Start: X=0
+rpc_call("set, X, 1")
+// End</code></pre>
+
+            <p><strong>What is the expected value of X?</strong></p>
+            <p><strong>What are all possible values of X?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p><strong>Expected</strong>: 1 (most likely outcome)</p>
+
+                    <p><strong>All possible</strong>: 0 or 1</p>
+                    <ul>
+                        <li>1: RPC succeeds at least once</li>
+                        <li>0: Only possible if server crashes before executing AND client times out before server reboots</li>
+                    </ul>
+
+                    <p>But wait! The question says "set command persistently sets through disk write" and "won't change due to crash."</p>
+
+                    <p>So actually: <strong>All possible values: 1</strong></p>
+                    <ul>
+                        <li>Once set, value persists even after crash</li>
+                        <li>Client retries until it receives acknowledgment</li>
+                        <li>Therefore, X must be 1 at the end</li>
+                    </ul>
+                </div>
+            </details>
+
+            <h3>Question 2: Lock Release Logic</h3>
+            <p><strong>Context</strong>: Lab 03 distributed lock using Put(key, value, version)</p>
+
+            <p><strong>What should tryReleaseLock() return for each error case?</strong></p>
+            <ul>
+                <li>OK: _____</li>
+                <li>ErrVersion: _____</li>
+                <li>ErrMaybe: _____</li>
+            </ul>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <ul>
+                        <li>OK: <strong>true</strong> (release succeeded)</li>
+                        <li>ErrVersion: <strong>true</strong> (someone else changed state; lock already released or taken)</li>
+                        <li>ErrMaybe: <strong>false</strong> (uncertain; must retry)</li>
+                    </ul>
+
+                    <p><strong>The key insight</strong>: ErrVersion means the lock state has changed. Since we're releasing, if someone else changed it, we're effectively done (either they released it, or they took it, but either way we're no longer the holder).</p>
+                </div>
+            </details>
+
+            <h3>Question 3: Chandy-Lamport Channel State</h3>
+            <p><strong>Setup</strong>: P3 initiates snapshot after e3</p>
+
+            <pre><code>P1: e1 -----> e7
+         msg   ↑
+P2: e2 -------> e5 -> e6
+                      msg
+                       ↓
+P3: e3 -----> e8</code></pre>
+
+            <p><strong>What are C2→1 and C2→3?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p>Need more info about message timing! But general approach:</p>
+
+                    <ol>
+                        <li>P3 records state at e3, sends markers</li>
+                        <li>When does P1 receive marker? When does P2 receive marker?</li>
+                        <li>C2→1 = messages from P2 to P1 sent after P2 records state but before P1 receives marker on that channel</li>
+                        <li>C2→3 = messages from P2 to P3 sent after P2 records state but before P3 receives marker on that channel</li>
+                    </ol>
+
+                    <p><strong>You must trace through the specific timing to answer this precisely!</strong></p>
+                </div>
+            </details>
+
+            <h3>Question 4: Chord Key Loss</h3>
+            <p><strong>Setup</strong>: 5-bit key space (mod 32), nodes at P6, P11, P12, P17, P20, P24, P28</p>
+
+            <p><strong>If P11 departs (no replication), which keys are lost?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p>P11 is responsible for (P6, P11] = {7, 8, 9, 10, 11}</p>
+
+                    <p>These keys are <strong>irrecoverably lost</strong> when P11 departs without replication.</p>
+                </div>
+            </details>
+
+            <h3>Question 5: Lattice Node Count</h3>
+            <p><strong>Setup</strong>: Execution with events on P1, P2, P3</p>
+
+            <p><strong>How many nodes in the lattice of consistent global states?</strong></p>
+
+            <details>
+                <summary><strong>Click to reveal answer</strong></summary>
+                <div class="callout-info">
+                    <p>This requires building the lattice!</p>
+
+                    <p><strong>General approach</strong>:</p>
+                    <ol>
+                        <li>Identify all events per process</li>
+                        <li>Start from initial state</li>
+                        <li>At each step, try advancing each process by one event</li>
+                        <li>Only add if advancement maintains consistency (respects happens-before)</li>
+                        <li>Count all reachable states</li>
+                    </ol>
+
+                    <p><strong>The answer depends on the specific execution and happens-before relationships!</strong></p>
+
+                    <p>For the specific example in lecture 21, the answer is one of {2, 8, 12, 15, 18} - you need to draw it out!</p>
+                </div>
+            </details>
+        </section>
+
+        <section id="final-checklist">
+            <h2>Final Checklist</h2>
+
+            <p>Before the exam, make sure you can:</p>
+
+            <ul class="checklist">
+                <li><input type="checkbox"> Explain at-most-once, at-least-once, exactly-once RPC semantics</li>
+                <li><input type="checkbox"> Trace through RPC scenarios with network failures</li>
+                <li><input type="checkbox"> Implement simple distributed protocols (locks, snapshots)</li>
+                <li><input type="checkbox"> Draw happens-before diagrams and identify concurrent events</li>
+                <li><input type="checkbox"> Calculate Lamport/vector clock values</li>
+                <li><input type="checkbox"> Determine Chord key responsibility and routing</li>
+                <li><input type="checkbox"> Trace Chandy-Lamport snapshot algorithm</li>
+                <li><input type="checkbox"> Identify consistent cuts and frontiers</li>
+                <li><input type="checkbox"> Analyze fault tolerance mechanisms</li>
+                <li><input type="checkbox"> Understand Bitcoin proof-of-work basics</li>
+                <li><input type="checkbox"> Apply MapReduce fault tolerance strategies</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">Interactive Exam Preparation Tracker</h3>
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px;">
+                <div>
+                    <h4 style="color: #3498db;">Topic Confidence</h4>
+                    <div id="topicConfidence" style="background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                        <!-- Topic confidence ratings -->
+                    </div>
+                    <div id="progressCircle" style="text-align: center; margin-top: 20px;">
+                        <svg width="150" height="150">
+                            <circle cx="75" cy="75" r="60" fill="none" stroke="#ecf0f1" stroke-width="15"/>
+                            <circle id="progressArc" cx="75" cy="75" r="60" fill="none" stroke="#27ae60" stroke-width="15"
+                                    stroke-dasharray="377" stroke-dashoffset="283"
+                                    transform="rotate(-90 75 75)" style="transition: stroke-dashoffset 0.5s;"/>
+                            <text x="75" y="75" text-anchor="middle" dy="5" font-size="24" font-weight="bold" fill="#27ae60" id="progressText">25%</text>
+                        </svg>
+                        <div style="margin-top: 10px; font-size: 13px; color: #7f8c8d;">Overall Preparation</div>
+                    </div>
+                </div>
+                <div>
+                    <h4 style="color: #3498db;">Study Plan (7 Days)</h4>
+                    <div id="studyPlan" style="background: #f8f9fa; padding: 15px; border-radius: 8px; max-height: 400px; overflow-y: auto;">
+                        <!-- Study plan will be populated -->
+                    </div>
+                </div>
+            </div>
+            <script>
+            (function() {
+                const topics = [
+                    {name: 'RPC', conf: 3}, {name: 'Byzantine', conf: 2}, {name: 'Lamport Clocks', conf: 4},
+                    {name: 'Snapshots', conf: 3}, {name: 'Chord DHT', conf: 4}, {name: 'Bitcoin', conf: 2},
+                    {name: 'Mutex', conf: 3}, {name: 'Lab 03', conf: 5}
+                ];
+
+                const confDiv = document.getElementById('topicConfidence');
+                let totalConf = 0;
+                topics.forEach(topic => {
+                    totalConf += topic.conf;
+                    const topicDiv = document.createElement('div');
+                    topicDiv.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; margin: 5px 0; background: white; border-radius: 4px;';
+
+                    const stars = '⭐'.repeat(topic.conf) + '☆'.repeat(5-topic.conf);
+                    const color = topic.conf >= 4 ? '#27ae60' : topic.conf >= 3 ? '#f39c12' : '#e74c3c';
+
+                    topicDiv.innerHTML = `<span style="font-size: 12px; font-weight: 500;">${topic.name}</span><span style="color: ${color}; font-size: 14px;">${stars}</span>`;
+                    confDiv.appendChild(topicDiv);
+                });
+
+                const avgConf = Math.round((totalConf / (topics.length * 5)) * 100);
+                document.getElementById('progressText').textContent = avgConf + '%';
+                const circumference = 377;
+                const offset = circumference - (circumference * avgConf / 100);
+                document.getElementById('progressArc').setAttribute('stroke-dashoffset', offset);
+
+                const studyPlan = [
+                    {day: 'Day 1', tasks: ['Review RPC semantics', 'Practice Byzantine problems', 'Review Lab 03']},
+                    {day: 'Day 2', tasks: ['Lamport & Vector Clocks exercises', 'Distributed snapshots practice']},
+                    {day: 'Day 3', tasks: ['Chord DHT problems', 'Finger table calculations']},
+                    {day: 'Day 4', tasks: ['Bitcoin & Proof-of-Work', 'MapReduce fault tolerance']},
+                    {day: 'Day 5', tasks: ['Mutual exclusion algorithms', 'Review all formulas']},
+                    {day: 'Day 6', tasks: ['Practice exam questions', 'Focus on weak areas']},
+                    {day: 'Day 7', tasks: ['Light review', 'Skim lecture slides', 'Get good sleep!']}
+                ];
+
+                const planDiv = document.getElementById('studyPlan');
+                studyPlan.forEach((day, i) => {
+                    const dayDiv = document.createElement('div');
+                    dayDiv.style.cssText = 'padding: 12px; margin: 8px 0; background: white; border-left: 4px solid ' + (i < 2 ? '#e74c3c' : i < 5 ? '#f39c12' : '#27ae60') + '; border-radius: 4px;';
+
+                    let html = `<div style="font-weight: bold; color: #2c3e50; margin-bottom: 5px;">${day.day}</div><ul style="margin: 5px 0; padding-left: 20px; font-size: 12px;">`;
+                    day.tasks.forEach(task => {
+                        html += `<li style="margin: 3px 0;">${task}</li>`;
+                    });
+                    html += '</ul>';
+                    dayDiv.innerHTML = html;
+                    planDiv.appendChild(dayDiv);
+                });
+            })();
+            </script>
+            <div style="margin-top: 20px; padding: 15px; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 4px; text-align: center;">
+                <strong>Motivational Quote:</strong> "Distributed systems are hard, but you're harder. Trust your preparation!"
+            </div>
+        </div>
+
+        <section id="closing-thoughts">
+            <h2>Closing Thoughts</h2>
+
+            <div class="callout-success">
+                <p>Distributed systems can feel overwhelming because there are so many moving parts (literally!). But remember:</p>
+
+                <ol>
+                    <li><strong>Most questions test fundamental concepts</strong> - Causality, consistency, fault tolerance</li>
+                    <li><strong>Drawing helps</strong> - Seriously, draw everything</li>
+                    <li><strong>Think about failures</strong> - Networks fail, processes crash, messages duplicate</li>
+                    <li><strong>State your assumptions</strong> - If unclear, clarify and move forward</li>
+                    <li><strong>Practice, practice, practice</strong> - Redo iClicker questions, work through examples</li>
+                </ol>
+
+                <p>You've got this! The fact that you're reading this study guide shows you're putting in the effort. Trust your preparation, stay calm during the exam, and remember: distributed systems are hard, but you're harder.</p>
+
+                <p><strong>Good luck!</strong></p>
+            </div>
+        </section>
+
+        <section id="remember">
+            <div class="callout-info">
+                <p><strong>Remember</strong>: Fill out the SEI survey after the exam! Your feedback helps improve the course for future students.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

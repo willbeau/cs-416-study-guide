@@ -1,0 +1,3271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Causal Consistency | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Causal Consistency</h1>
+            <p>CS 416 Study Guide - Topic 03</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#core-concept">Core Concept</a></li>
+                <li><a href="#why-causal-consistency-matters">Why Causal Consistency Matters</a></li>
+                <li><a href="#happens-before-relationship">The Happens-Before Relationship</a></li>
+                <li><a href="#two-rules">The Two Rules of Causal Consistency</a></li>
+                <li><a href="#real-world-analogy">Real-World Analogy</a></li>
+                <li><a href="#causal-vs-sequential">Causal vs Sequential vs Eventual Consistency</a></li>
+                <li><a href="#vector-clocks">Vector Clocks: The Key Implementation Tool</a></li>
+                <li><a href="#working-examples">Working Through Examples</a></li>
+                <li><a href="#how-to-check">How to Check Causal Consistency</a></li>
+                <li><a href="#common-pitfalls">Common Pitfalls and Tricks</a></li>
+                <li><a href="#practice-problems">Practice Problems</a></li>
+                <li><a href="#memory-aids">Memory Aids</a></li>
+                <li><a href="#real-world-systems">Real-World Systems</a></li>
+            </ol>
+        </section>
+
+        <section id="core-concept">
+            <h2>Core Concept</h2>
+
+            <div class="callout-info">
+                <p><strong>Causal Consistency</strong> is a relaxed consistency model that only enforces ordering for operations that are causally related. Unlike sequential consistency (which requires a total order), causal consistency allows concurrent (non-causally-related) operations to be seen in different orders by different machines.</p>
+            </div>
+
+            <p>Think of it this way: If operation A could have influenced operation B (they're causally related), everyone must see A before B. But if A and B are independent and concurrent, different machines can see them in different orders.</p>
+
+            <h3>Quick Definition</h3>
+            <p>A system is causally consistent if:</p>
+            <ul>
+                <li>All causally related writes are seen by all machines in the same order</li>
+                <li>Concurrent (non-causally-related) writes can be seen in different orders by different machines</li>
+                <li>Each machine's operations still appear in program order</li>
+            </ul>
+
+            <div class="callout-success">
+                <h3>The Big Idea</h3>
+                <p><strong>Causal consistency</strong> says: "We care about cause-and-effect, but we don't care about unrelated events."</p>
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Causal Consistency Overview</h3>
+            <p style="margin-bottom: 1.5rem;">Click on a machine to see its view of operations. Green = causally ordered, Blue = concurrent.</p>
+
+            <div id="causal-overview-viz" style="position: relative; height: 500px; background: #f8f9fa; border-radius: 8px; padding: 20px;">
+                <svg width="100%" height="100%" style="position: absolute; top: 0; left: 0;"></svg>
+            </div>
+
+            <div id="machine-view" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; min-height: 100px;">
+                <strong>Machine View:</strong> <span id="selected-machine">Click a machine to see its view</span>
+                <div id="operation-order" style="margin-top: 0.5rem; font-family: monospace;"></div>
+            </div>
+
+            <script>
+            (function() {
+                const svg = document.querySelector('#causal-overview-viz svg');
+                const width = svg.parentElement.clientWidth;
+                const height = 500;
+
+                const machines = [
+                    { id: 'M1', x: width * 0.2, y: 100, ops: ['W1', 'W3', 'W2', 'W4'] },
+                    { id: 'M2', x: width * 0.5, y: 100, ops: ['W1', 'W4', 'W2', 'W3'] },
+                    { id: 'M3', x: width * 0.8, y: 100, ops: ['W1', 'W2', 'W3', 'W4'] }
+                ];
+
+                const operations = {
+                    W1: { color: '#27ae60', causal: true, label: 'W1 (causal)' },
+                    W2: { color: '#27ae60', causal: true, label: 'W2 (causal, depends on W1)' },
+                    W3: { color: '#3498db', causal: false, label: 'W3 (concurrent)' },
+                    W4: { color: '#3498db', causal: false, label: 'W4 (concurrent)' }
+                };
+
+                let selectedMachine = null;
+
+                // Draw machines
+                machines.forEach(machine => {
+                    // Machine circle
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', machine.x);
+                    circle.setAttribute('cy', machine.y);
+                    circle.setAttribute('r', 40);
+                    circle.setAttribute('fill', '#2c3e50');
+                    circle.setAttribute('stroke', '#3498db');
+                    circle.setAttribute('stroke-width', '3');
+                    circle.style.cursor = 'pointer';
+                    circle.classList.add('machine-circle');
+
+                    circle.addEventListener('click', () => {
+                        document.querySelectorAll('.machine-circle').forEach(c => {
+                            c.setAttribute('stroke', '#3498db');
+                            c.setAttribute('stroke-width', '3');
+                        });
+                        circle.setAttribute('stroke', '#e74c3c');
+                        circle.setAttribute('stroke-width', '5');
+
+                        document.getElementById('selected-machine').textContent = machine.id;
+                        const orderHTML = machine.ops.map((op, i) =>
+                            `<div style="margin: 5px 0; padding: 5px; background: ${operations[op].color}; color: white; border-radius: 3px;">
+                                ${i + 1}. ${operations[op].label}
+                            </div>`
+                        ).join('');
+                        document.getElementById('operation-order').innerHTML = orderHTML;
+                    });
+
+                    svg.appendChild(circle);
+
+                    // Machine label
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', machine.x);
+                    text.setAttribute('y', machine.y + 5);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('fill', 'white');
+                    text.setAttribute('font-size', '18');
+                    text.setAttribute('font-weight', 'bold');
+                    text.textContent = machine.id;
+                    svg.appendChild(text);
+
+                    // Timeline
+                    const timelineY = machine.y + 80;
+                    machine.ops.forEach((op, i) => {
+                        const opY = timelineY + i * 50;
+
+                        // Operation box
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        rect.setAttribute('x', machine.x - 30);
+                        rect.setAttribute('y', opY - 15);
+                        rect.setAttribute('width', 60);
+                        rect.setAttribute('height', 30);
+                        rect.setAttribute('fill', operations[op].color);
+                        rect.setAttribute('stroke', '#2c3e50');
+                        rect.setAttribute('stroke-width', '2');
+                        rect.setAttribute('rx', '5');
+                        svg.appendChild(rect);
+
+                        // Operation label
+                        const opText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        opText.setAttribute('x', machine.x);
+                        opText.setAttribute('y', opY + 5);
+                        opText.setAttribute('text-anchor', 'middle');
+                        opText.setAttribute('fill', 'white');
+                        opText.setAttribute('font-size', '14');
+                        opText.setAttribute('font-weight', 'bold');
+                        opText.textContent = op;
+                        svg.appendChild(opText);
+                    });
+                });
+
+                // Draw causal arrow W1 -> W2
+                const arrow1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                arrow1.setAttribute('x1', 100);
+                arrow1.setAttribute('y1', 30);
+                arrow1.setAttribute('x2', 250);
+                arrow1.setAttribute('y2', 30);
+                arrow1.setAttribute('stroke', '#27ae60');
+                arrow1.setAttribute('stroke-width', '3');
+                arrow1.setAttribute('marker-end', 'url(#arrowGreen)');
+                svg.appendChild(arrow1);
+
+                // Arrow marker definitions
+                const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                const markerGreen = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                markerGreen.setAttribute('id', 'arrowGreen');
+                markerGreen.setAttribute('markerWidth', '10');
+                markerGreen.setAttribute('markerHeight', '10');
+                markerGreen.setAttribute('refX', '9');
+                markerGreen.setAttribute('refY', '3');
+                markerGreen.setAttribute('orient', 'auto');
+                const pathGreen = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                pathGreen.setAttribute('d', 'M0,0 L0,6 L9,3 z');
+                pathGreen.setAttribute('fill', '#27ae60');
+                markerGreen.appendChild(pathGreen);
+                defs.appendChild(markerGreen);
+                svg.insertBefore(defs, svg.firstChild);
+
+                // Legend
+                const legendY = 450;
+                const legend1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                legend1.setAttribute('x', 20);
+                legend1.setAttribute('y', legendY);
+                legend1.setAttribute('fill', '#27ae60');
+                legend1.setAttribute('font-weight', 'bold');
+                legend1.textContent = '■ Causally Related (W1 → W2)';
+                svg.appendChild(legend1);
+
+                const legend2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                legend2.setAttribute('x', 250);
+                legend2.setAttribute('y', legendY);
+                legend2.setAttribute('fill', '#3498db');
+                legend2.setAttribute('font-weight', 'bold');
+                legend2.textContent = '■ Concurrent (W3 ∥ W4)';
+                svg.appendChild(legend2);
+            })();
+            </script>
+        </div>
+
+        <section id="why-causal-consistency-matters">
+            <h2>Why Causal Consistency Matters</h2>
+
+            <p>Sequential consistency is great, but it's expensive! It requires coordinating all writes across all machines. Causal consistency is the sweet spot for many distributed systems:</p>
+
+            <h3>The Problem with Sequential Consistency:</h3>
+            <ul>
+                <li>Requires a total order of ALL operations</li>
+                <li>Expensive coordination even for completely independent writes</li>
+                <li>Example: If Alice posts on social media in New York and Bob posts in Tokyo at the "same time," why should we force everyone to see them in the same order?</li>
+            </ul>
+
+            <h3>The Solution with Causal Consistency:</h3>
+            <ul>
+                <li>Only order operations that are causally related</li>
+                <li>Allow independent operations to happen in parallel</li>
+                <li>Much better performance while preserving meaningful relationships</li>
+            </ul>
+
+            <div class="callout-success">
+                <h3>When Causal Consistency Shines:</h3>
+                <ul>
+                    <li><strong>Social media</strong> - posts and replies must be ordered, but unrelated posts don't need to be</li>
+                    <li><strong>Collaborative editing</strong> - edits based on previous edits must be ordered</li>
+                    <li><strong>Distributed databases</strong> - where some writes depend on reads</li>
+                </ul>
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Performance Comparison</h3>
+            <p style="margin-bottom: 1.5rem;">Compare consistency models across different metrics. Hover over bars for details.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; margin-top: 1.5rem;">
+                <div id="perf-chart-1"></div>
+                <div id="perf-chart-2"></div>
+                <div id="perf-chart-3"></div>
+                <div id="perf-chart-4"></div>
+            </div>
+
+            <div style="margin-top: 2rem; padding: 1.5rem; background: var(--code-bg); border-radius: 8px;">
+                <h4 style="margin-top: 0;">Use Cases:</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div style="padding: 1rem; background: rgba(231, 76, 60, 0.1); border-left: 4px solid #e74c3c; border-radius: 4px;">
+                        <strong>Sequential:</strong><br>Banking, Financial Trading
+                    </div>
+                    <div style="padding: 1rem; background: rgba(243, 156, 18, 0.1); border-left: 4px solid #f39c12; border-radius: 4px;">
+                        <strong>Causal:</strong><br>Social Media, Collaborative Editing
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 4px;">
+                        <strong>Eventual:</strong><br>DNS, CDNs, Caching
+                    </div>
+                </div>
+            </div>
+
+            <script>
+            (function() {
+                const metrics = [
+                    {
+                        name: 'Coordination Overhead',
+                        data: { Sequential: 90, Causal: 50, Eventual: 10 },
+                        colors: { Sequential: '#e74c3c', Causal: '#f39c12', Eventual: '#27ae60' }
+                    },
+                    {
+                        name: 'Latency',
+                        data: { Sequential: 85, Causal: 45, Eventual: 15 },
+                        colors: { Sequential: '#e74c3c', Causal: '#f39c12', Eventual: '#27ae60' }
+                    },
+                    {
+                        name: 'Throughput',
+                        data: { Sequential: 30, Causal: 65, Eventual: 95 },
+                        colors: { Sequential: '#e74c3c', Causal: '#27ae60', Eventual: '#27ae60' }
+                    },
+                    {
+                        name: 'Partition Tolerance',
+                        data: { Sequential: 20, Causal: 80, Eventual: 90 },
+                        colors: { Sequential: '#e74c3c', Causal: '#27ae60', Eventual: '#27ae60' }
+                    }
+                ];
+
+                function createBarChart(container, metric) {
+                    const html = `
+                        <div style="background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h4 style="text-align: center; margin: 0 0 1rem 0; color: var(--primary-color); font-size: 1rem;">
+                                ${metric.name}
+                            </h4>
+                            ${Object.keys(metric.data).map(model => `
+                                <div style="margin-bottom: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem; font-size: 0.9rem;">
+                                        <span style="font-weight: bold;">${model}</span>
+                                        <span>${metric.data[model]}%</span>
+                                    </div>
+                                    <div style="background: #ecf0f1; border-radius: 10px; overflow: hidden; height: 20px;">
+                                        <div style="
+                                            width: ${metric.data[model]}%;
+                                            height: 100%;
+                                            background: ${metric.colors[model]};
+                                            transition: width 0.5s ease;
+                                            border-radius: 10px;
+                                        "></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    container.innerHTML = html;
+                }
+
+                metrics.forEach((metric, i) => {
+                    const container = document.getElementById(`perf-chart-${i + 1}`);
+                    createBarChart(container, metric);
+                });
+            })();
+            </script>
+        </div>
+
+        <section id="happens-before-relationship">
+            <h2>The Happens-Before Relationship</h2>
+
+            <p>The foundation of causal consistency is the <strong>happens-before</strong> relationship, denoted as <strong>→</strong> or <strong>≺</strong>.</p>
+
+            <h3>Definition: When Does A Happen-Before B (A → B)?</h3>
+
+            <p>Event A happens-before event B if any of these conditions hold:</p>
+
+            <ol>
+                <li>
+                    <strong>Program Order</strong>: A and B occur on the same process/machine, and A comes before B in the program
+                    <ul>
+                        <li>Example: Process P1 writes X=1, then writes Y=2</li>
+                        <li>X=1 → Y=2</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Message Send-Receive</strong>: A is a send event and B is the corresponding receive event
+                    <ul>
+                        <li>Example: P1 sends message m, P2 receives m</li>
+                        <li>send(m) → receive(m)</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Transitivity</strong>: If A → B and B → C, then A → C
+                    <ul>
+                        <li>Example: P1 writes X=1, P2 reads X=1 then writes Y=2, P3 reads Y=2</li>
+                        <li>X=1 → (P2's read) → Y=2 → (P3's read)</li>
+                        <li>Therefore: X=1 → P3's read (transitively)</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Concurrent Events (A ∥ B)</h3>
+
+            <p>If A does NOT happen-before B, and B does NOT happen-before A, then A and B are <strong>concurrent</strong> (A ∥ B).</p>
+
+            <div class="callout-warning">
+                <p><strong>Key insight</strong>: Concurrent events can be seen in any order by different machines!</p>
+            </div>
+
+            <div class="callout-info">
+                <h3>Memory Aid: "PMT"</h3>
+                <ul>
+                    <li><strong>P</strong>rogram order creates happens-before</li>
+                    <li><strong>M</strong>essages create happens-before (send before receive)</li>
+                    <li><strong>T</strong>ransitivity extends happens-before</li>
+                </ul>
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Happens-Before Relationship</h3>
+            <p style="margin-bottom: 1rem;">Click on events to compare their relationships. Toggle to show/hide transitive arrows.</p>
+
+            <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="show-transitive" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <span>Show Transitive Relationships</span>
+                </label>
+            </div>
+
+            <div id="happens-before-viz" style="position: relative; height: 450px; background: #f8f9fa; border-radius: 8px; padding: 20px;">
+                <svg width="100%" height="100%" style="position: absolute; top: 0; left: 0;"></svg>
+            </div>
+
+            <div id="relationship-display" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; min-height: 80px;">
+                <strong>Relationship:</strong> <span id="relationship-text">Select two events to compare</span>
+            </div>
+
+            <div style="margin-top: 1rem; display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.9rem;">
+                <div><span style="color: #3498db; font-weight: bold;">━━</span> Program Order</div>
+                <div><span style="color: #27ae60; font-weight: bold;">━━</span> Message Passing</div>
+                <div><span style="color: #9b59b6; font-weight: bold;">╌╌</span> Transitive</div>
+            </div>
+
+            <script>
+            (function() {
+                const svg = document.querySelector('#happens-before-viz svg');
+                const width = svg.parentElement.clientWidth;
+                const height = 450;
+
+                const processes = [
+                    { id: 'P1', x: 150, events: ['A', 'B', 'C'] },
+                    { id: 'P2', x: width / 2, events: ['D', 'E'] },
+                    { id: 'P3', x: width - 150, events: ['F', 'G'] }
+                ];
+
+                const eventPositions = {};
+                const relationships = [
+                    { from: 'A', to: 'B', type: 'program' },
+                    { from: 'B', to: 'C', type: 'program' },
+                    { from: 'B', to: 'D', type: 'message' },
+                    { from: 'D', to: 'E', type: 'program' },
+                    { from: 'E', to: 'F', type: 'message' },
+                    { from: 'F', to: 'G', type: 'program' },
+                    // Transitive
+                    { from: 'A', to: 'C', type: 'transitive' },
+                    { from: 'A', to: 'D', type: 'transitive' },
+                    { from: 'B', to: 'E', type: 'transitive' },
+                    { from: 'D', to: 'F', type: 'transitive' },
+                    { from: 'A', to: 'E', type: 'transitive' },
+                    { from: 'B', to: 'F', type: 'transitive' },
+                    { from: 'A', to: 'F', type: 'transitive' },
+                    { from: 'A', to: 'G', type: 'transitive' },
+                    { from: 'B', to: 'G', type: 'transitive' },
+                    { from: 'D', to: 'G', type: 'transitive' },
+                    { from: 'E', to: 'G', type: 'transitive' }
+                ];
+
+                const colors = {
+                    program: '#3498db',
+                    message: '#27ae60',
+                    transitive: '#9b59b6'
+                };
+
+                let selectedEvents = [];
+
+                function drawArrow(from, to, type) {
+                    const fromPos = eventPositions[from];
+                    const toPos = eventPositions[to];
+
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', fromPos.x);
+                    line.setAttribute('y1', fromPos.y);
+                    line.setAttribute('x2', toPos.x);
+                    line.setAttribute('y2', toPos.y);
+                    line.setAttribute('stroke', colors[type]);
+                    line.setAttribute('stroke-width', type === 'transitive' ? '2' : '3');
+                    line.setAttribute('marker-end', `url(#arrow-${type})`);
+                    line.classList.add(type === 'transitive' ? 'transitive-arrow' : 'direct-arrow');
+
+                    if (type === 'transitive') {
+                        line.setAttribute('stroke-dasharray', '5,5');
+                    }
+
+                    return line;
+                }
+
+                // Create arrow markers
+                const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                ['program', 'message', 'transitive'].forEach(type => {
+                    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                    marker.setAttribute('id', `arrow-${type}`);
+                    marker.setAttribute('markerWidth', '10');
+                    marker.setAttribute('markerHeight', '10');
+                    marker.setAttribute('refX', '9');
+                    marker.setAttribute('refY', '3');
+                    marker.setAttribute('orient', 'auto');
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('d', 'M0,0 L0,6 L9,3 z');
+                    path.setAttribute('fill', colors[type]);
+                    marker.appendChild(path);
+                    defs.appendChild(marker);
+                });
+                svg.appendChild(defs);
+
+                // Draw processes and events
+                processes.forEach((proc, pIdx) => {
+                    // Process line
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', proc.x);
+                    line.setAttribute('y1', 50);
+                    line.setAttribute('x2', proc.x);
+                    line.setAttribute('y2', height - 50);
+                    line.setAttribute('stroke', '#bdc3c7');
+                    line.setAttribute('stroke-width', '2');
+                    svg.appendChild(line);
+
+                    // Process label
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', proc.x);
+                    label.setAttribute('y', 30);
+                    label.setAttribute('text-anchor', 'middle');
+                    label.setAttribute('font-weight', 'bold');
+                    label.setAttribute('font-size', '16');
+                    label.setAttribute('fill', '#2c3e50');
+                    label.textContent = proc.id;
+                    svg.appendChild(label);
+
+                    // Events
+                    proc.events.forEach((event, eIdx) => {
+                        const y = 80 + eIdx * 100;
+                        eventPositions[event] = { x: proc.x, y: y };
+
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', proc.x);
+                        circle.setAttribute('cy', y);
+                        circle.setAttribute('r', 25);
+                        circle.setAttribute('fill', '#2c3e50');
+                        circle.setAttribute('stroke', '#3498db');
+                        circle.setAttribute('stroke-width', '3');
+                        circle.style.cursor = 'pointer';
+                        circle.dataset.event = event;
+
+                        circle.addEventListener('click', () => {
+                            if (selectedEvents.includes(event)) {
+                                selectedEvents = selectedEvents.filter(e => e !== event);
+                                circle.setAttribute('fill', '#2c3e50');
+                            } else {
+                                if (selectedEvents.length >= 2) {
+                                    const firstEvent = selectedEvents.shift();
+                                    document.querySelector(`[data-event="${firstEvent}"]`).setAttribute('fill', '#2c3e50');
+                                }
+                                selectedEvents.push(event);
+                                circle.setAttribute('fill', '#e74c3c');
+                            }
+
+                            if (selectedEvents.length === 2) {
+                                const [e1, e2] = selectedEvents;
+                                const hasPath = relationships.some(r => r.from === e1 && r.to === e2);
+                                const hasReversePath = relationships.some(r => r.from === e2 && r.to === e1);
+
+                                let result;
+                                if (hasPath) {
+                                    result = `<span style="color: #27ae60; font-weight: bold;">${e1} → ${e2}</span> (${e1} happens-before ${e2})`;
+                                } else if (hasReversePath) {
+                                    result = `<span style="color: #27ae60; font-weight: bold;">${e2} → ${e1}</span> (${e2} happens-before ${e1})`;
+                                } else {
+                                    result = `<span style="color: #3498db; font-weight: bold;">${e1} ∥ ${e2}</span> (Concurrent - no causal relationship)`;
+                                }
+                                document.getElementById('relationship-text').innerHTML = result;
+                            } else {
+                                document.getElementById('relationship-text').textContent = selectedEvents.length === 1 ? `Selected: ${selectedEvents[0]}. Select another event.` : 'Select two events to compare';
+                            }
+                        });
+
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', proc.x);
+                        text.setAttribute('y', y + 5);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', 'white');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('font-size', '16');
+                        text.textContent = event;
+                        svg.appendChild(text);
+                    });
+                });
+
+                // Draw arrows
+                const arrowGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                relationships.forEach(rel => {
+                    const arrow = drawArrow(rel.from, rel.to, rel.type);
+                    arrowGroup.appendChild(arrow);
+                });
+                svg.insertBefore(arrowGroup, svg.querySelector('circle'));
+
+                // Toggle transitive relationships
+                document.getElementById('show-transitive').addEventListener('change', (e) => {
+                    const transitiveArrows = svg.querySelectorAll('.transitive-arrow');
+                    transitiveArrows.forEach(arrow => {
+                        arrow.style.display = e.target.checked ? 'block' : 'none';
+                    });
+                });
+            })();
+            </script>
+        </div>
+
+        <section id="two-rules">
+            <h2>The Two Rules of Causal Consistency</h2>
+
+            <h3>Rule 1: Causal Ordering of Writes</h3>
+            <div class="callout-info">
+                <p><strong>Store (ST) operations that are potentially causally related must be seen by all machines in the same order. Concurrent ST operations may be seen in different orders on different machines.</strong></p>
+                <p><em>In plain English</em>: If write A could have influenced write B, everyone must see A before B. But if two writes are independent, different machines can disagree about their order.</p>
+            </div>
+
+            <h3>Rule 2: Program Order Preservation</h3>
+            <div class="callout-info">
+                <p><strong>Load (LD) and Store (ST) instructions executed on each individual machine appear in the order specified by the program.</strong></p>
+                <p><em>In plain English</em>: Just like sequential consistency, you can't reorder operations within a single machine's program.</p>
+            </div>
+
+            <h3>What's Different from Sequential Consistency?</h3>
+            <ul>
+                <li><strong>Sequential</strong>: ALL writes must have one total order everyone agrees on</li>
+                <li><strong>Causal</strong>: Only CAUSALLY RELATED writes must have the same order; concurrent writes can differ</li>
+            </ul>
+        </section>
+
+        <section id="real-world-analogy">
+            <h2>Real-World Analogy</h2>
+
+            <h3>The Social Media Analogy</h3>
+
+            <p>Imagine Twitter/X, where people post tweets and reply to them:</p>
+
+            <h4>Scenario:</h4>
+            <ol>
+                <li>Alice posts: "I love distributed systems!" (Post A)</li>
+                <li>Bob reads Alice's post and replies: "Me too!" (Post B)</li>
+                <li>Charlie posts: "Pizza for lunch!" (Post C) - completely unrelated</li>
+            </ol>
+
+            <h4>Causal Relationships:</h4>
+            <ul>
+                <li>Post A → Post B (Bob saw Alice's post before replying)</li>
+                <li>Post A ∥ Post C (completely independent events)</li>
+                <li>Post B ∥ Post C (completely independent events)</li>
+            </ul>
+
+            <h4>Causal Consistency Requirements:</h4>
+            <ul>
+                <li>Everyone must see Post A before Post B (causally related)</li>
+                <li>Different users can see Post C at different times relative to A and B
+                    <ul>
+                        <li>User 1 might see: A, B, C</li>
+                        <li>User 2 might see: A, C, B</li>
+                        <li>User 3 might see: C, A, B</li>
+                        <li>All are valid!</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <div class="callout-warning">
+                <p><strong>What's NOT allowed</strong>: Seeing Post B before Post A (violates causality - Bob replied before Alice posted!)</p>
+            </div>
+
+            <h3>The Email Analogy</h3>
+            <p>Think of email threads:</p>
+            <ul>
+                <li>Original email → Reply to that email (causally related, must be in order)</li>
+                <li>Two unrelated email threads (concurrent, can arrive in any order)</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Social Media Posts</h3>
+            <p style="margin-bottom: 1.5rem;">Click "Shuffle Feeds" to see different valid orderings. Green thread = reply relationship.</p>
+
+            <button id="shuffle-feeds" style="padding: 0.7rem 1.5rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-bottom: 1.5rem; font-weight: bold;">
+                Shuffle Feeds
+            </button>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                <div id="feed-1" class="social-feed"></div>
+                <div id="feed-2" class="social-feed"></div>
+                <div id="feed-3" class="social-feed"></div>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding: 1rem; background: var(--info-color); color: white; border-radius: 5px;">
+                <strong>Key Rule:</strong> Post B (reply) must always appear after Post A (original). Post C can appear anywhere.
+            </div>
+
+            <style>
+                .social-feed {
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                }
+                .post {
+                    background: white;
+                    border-radius: 8px;
+                    padding: 1rem;
+                    margin-bottom: 0.8rem;
+                    border-left: 4px solid;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    position: relative;
+                }
+                .post-a { border-color: #3498db; }
+                .post-b { border-color: #27ae60; margin-left: 1rem; }
+                .post-c { border-color: #f39c12; }
+                .post-header {
+                    font-weight: bold;
+                    margin-bottom: 0.5rem;
+                    color: #2c3e50;
+                }
+                .post-content {
+                    font-size: 0.9rem;
+                    color: #555;
+                }
+                .reply-indicator {
+                    font-size: 0.8rem;
+                    color: #27ae60;
+                    font-style: italic;
+                    margin-bottom: 0.3rem;
+                }
+            </style>
+
+            <script>
+            (function() {
+                const posts = {
+                    A: {
+                        header: 'Alice',
+                        content: 'I love distributed systems!',
+                        class: 'post-a',
+                        type: 'original'
+                    },
+                    B: {
+                        header: 'Bob',
+                        content: 'Me too!',
+                        class: 'post-b',
+                        type: 'reply',
+                        replyTo: 'A'
+                    },
+                    C: {
+                        header: 'Charlie',
+                        content: 'Pizza for lunch!',
+                        class: 'post-c',
+                        type: 'original'
+                    }
+                };
+
+                const validOrderings = [
+                    ['A', 'B', 'C'],
+                    ['A', 'C', 'B'],
+                    ['C', 'A', 'B']
+                ];
+
+                function createPost(postId) {
+                    const post = posts[postId];
+                    let html = `<div class="post ${post.class}">`;
+
+                    if (post.type === 'reply') {
+                        html += `<div class="reply-indicator">↳ Replying to ${post.replyTo}</div>`;
+                    }
+
+                    html += `
+                        <div class="post-header">Post ${postId} - ${post.header}</div>
+                        <div class="post-content">${post.content}</div>
+                    </div>`;
+
+                    return html;
+                }
+
+                function renderFeed(feedId, ordering) {
+                    const feed = document.getElementById(feedId);
+                    feed.innerHTML = `
+                        <h4 style="margin: 0 0 1rem 0; color: #2c3e50; text-align: center;">
+                            User ${feedId.split('-')[1]} Feed
+                        </h4>
+                        ${ordering.map(postId => createPost(postId)).join('')}
+                    `;
+                }
+
+                function shuffleFeeds() {
+                    const shuffled = [...validOrderings].sort(() => Math.random() - 0.5);
+                    renderFeed('feed-1', shuffled[0]);
+                    renderFeed('feed-2', shuffled[1] || validOrderings[0]);
+                    renderFeed('feed-3', shuffled[2] || validOrderings[1]);
+                }
+
+                document.getElementById('shuffle-feeds').addEventListener('click', shuffleFeeds);
+
+                // Initial render
+                shuffleFeeds();
+            })();
+            </script>
+        </div>
+
+        <section id="causal-vs-sequential">
+            <h2>Causal vs Sequential vs Eventual Consistency</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>Sequential</th>
+                        <th>Causal</th>
+                        <th>Eventual</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Global Order</strong></td>
+                        <td>Total order (all ops)</td>
+                        <td>Partial order (causal ops only)</td>
+                        <td>No order guaranteed</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Concurrent Writes</strong></td>
+                        <td>Must agree on order</td>
+                        <td>Can disagree on order</td>
+                        <td>Can disagree on order</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Program Order</strong></td>
+                        <td>Preserved</td>
+                        <td>Preserved</td>
+                        <td>Not guaranteed</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Performance</strong></td>
+                        <td>Expensive (lots of coordination)</td>
+                        <td>Moderate (only causal coordination)</td>
+                        <td>Fast (minimal coordination)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Use Case</strong></td>
+                        <td>Strong correctness needs</td>
+                        <td>Social media, collaborative apps</td>
+                        <td>Eventually consistent data stores</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Visual Comparison</h3>
+
+            <h4>Sequential Consistency:</h4>
+            <pre><code>M1: A → B
+M2: X → Y
+
+Everyone must agree:
+Total order: A, B, X, Y OR A, X, Y, B OR X, Y, A, B etc.
+BUT: Everyone sees the SAME order</code></pre>
+
+            <h4>Causal Consistency:</h4>
+            <pre><code>M1: A → B
+M2: X → Y
+(A and X are concurrent)
+
+M3 might see: A, B, X, Y
+M4 might see: X, Y, A, B
+Both valid! A and X can be reordered because they're concurrent</code></pre>
+
+            <h4>Eventual Consistency:</h4>
+            <pre><code>M1: A → B
+M2: X → Y
+
+M3 might see: A, X, B, Y (violates program order!)
+Eventually everyone converges, but during updates: anything goes</code></pre>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Consistency Model Comparison</h3>
+            <p style="margin-bottom: 1.5rem;">Same operations (M1: A→B, M2: X→Y), different consistency models. ✓ = valid, ✗ = invalid</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+                <!-- Sequential Consistency -->
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem; border-top: 4px solid #e74c3c;">
+                    <h4 style="text-align: center; color: #e74c3c; margin: 0 0 1rem 0;">Sequential Consistency</h4>
+                    <div style="margin-bottom: 1rem;">
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: A, B, X, Y<br>
+                            <small style="color: #666;">All see same order</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: X, Y, A, B<br>
+                            <small style="color: #666;">All see same order</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #e74c3c;">
+                            <span style="color: #e74c3c; font-weight: bold;">✗</span> M3: A, B, X, Y<br>
+                            M4: X, Y, A, B<br>
+                            <small style="color: #666;">Can't disagree!</small>
+                        </div>
+                    </div>
+                    <div style="padding: 0.8rem; background: rgba(231, 76, 60, 0.1); border-radius: 5px; font-size: 0.85rem;">
+                        <strong>Requirement:</strong> Total order - everyone must agree
+                    </div>
+                </div>
+
+                <!-- Causal Consistency -->
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem; border-top: 4px solid #f39c12;">
+                    <h4 style="text-align: center; color: #f39c12; margin: 0 0 1rem 0;">Causal Consistency</h4>
+                    <div style="margin-bottom: 1rem;">
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: A, B, X, Y<br>
+                            <small style="color: #666;">Valid ordering</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: A, B, X, Y<br>
+                            M4: X, Y, A, B<br>
+                            <small style="color: #666;">Can disagree on concurrent!</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #e74c3c;">
+                            <span style="color: #e74c3c; font-weight: bold;">✗</span> M3: B, A, X, Y<br>
+                            <small style="color: #666;">Violates A→B!</small>
+                        </div>
+                    </div>
+                    <div style="padding: 0.8rem; background: rgba(243, 156, 18, 0.1); border-radius: 5px; font-size: 0.85rem;">
+                        <strong>Requirement:</strong> Preserve causality only (A→B, X→Y)
+                    </div>
+                </div>
+
+                <!-- Eventual Consistency -->
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 1.5rem; border-top: 4px solid #27ae60;">
+                    <h4 style="text-align: center; color: #27ae60; margin: 0 0 1rem 0;">Eventual Consistency</h4>
+                    <div style="margin-bottom: 1rem;">
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: A, X, B, Y<br>
+                            <small style="color: #666;">Any order during updates</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #27ae60;">
+                            <span style="color: #27ae60; font-weight: bold;">✓</span> M3: B, A, Y, X<br>
+                            <small style="color: #666;">Even program order can vary</small>
+                        </div>
+                        <div style="padding: 0.8rem; background: white; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid #3498db;">
+                            <span style="color: #3498db; font-weight: bold;">⚠</span> Eventually:<br>
+                            All converge to same state
+                        </div>
+                    </div>
+                    <div style="padding: 0.8rem; background: rgba(39, 174, 96, 0.1); border-radius: 5px; font-size: 0.85rem;">
+                        <strong>Requirement:</strong> Eventually converge (no guarantees during updates)
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 2rem; padding: 1.5rem; background: var(--code-bg); border-radius: 8px;">
+                <h4 style="margin-top: 0;">Performance Metrics:</h4>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; text-align: center;">
+                    <div>
+                        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.3rem;">Sequential</div>
+                        <div style="font-size: 1.5rem; color: #e74c3c; font-weight: bold;">Slow</div>
+                        <div style="font-size: 0.8rem; color: #666;">High coordination</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.3rem;">Causal</div>
+                        <div style="font-size: 1.5rem; color: #f39c12; font-weight: bold;">Medium</div>
+                        <div style="font-size: 0.8rem; color: #666;">Causal tracking</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.3rem;">Eventual</div>
+                        <div style="font-size: 1.5rem; color: #27ae60; font-weight: bold;">Fast</div>
+                        <div style="font-size: 0.8rem; color: #666;">Minimal coordination</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section id="vector-clocks">
+            <h2>Vector Clocks: The Key Implementation Tool</h2>
+
+            <p>To implement causal consistency, we need a way to detect causal relationships. Enter <strong>vector clocks</strong>!</p>
+
+            <h3>What Are Vector Clocks?</h3>
+
+            <p>A vector clock is an array/vector of timestamps, one entry per process/machine in the system.</p>
+
+            <div class="callout-info">
+                <p><strong>For a system with N processes:</strong></p>
+                <ul>
+                    <li>Each process maintains a vector of N counters: [c₁, c₂, ..., cₙ]</li>
+                    <li>Process Pᵢ increments its own counter cᵢ for each event</li>
+                    <li>When sending a message, include the current vector clock</li>
+                    <li>When receiving a message, merge vector clocks</li>
+                </ul>
+            </div>
+
+            <h3>Vector Clock Rules</h3>
+
+            <h4>Initialization:</h4>
+            <pre><code>All processes start with: [0, 0, 0, ..., 0]</code></pre>
+
+            <h4>Local Event (on process Pᵢ):</h4>
+            <pre><code>Increment Vᵢ[i] by 1</code></pre>
+
+            <h4>Send Message (from process Pᵢ):</h4>
+            <pre><code>Increment Vᵢ[i] by 1
+Include Vᵢ in the message</code></pre>
+
+            <h4>Receive Message (process Pⱼ receives from Pᵢ with timestamp Vmsg):</h4>
+            <pre><code>For each k: Vⱼ[k] = max(Vⱼ[k], Vmsg[k])
+Increment Vⱼ[j] by 1</code></pre>
+
+            <h3>Comparing Vector Clocks</h3>
+
+            <p>Given two vector timestamps A and B:</p>
+
+            <h4>Equality (A = B):</h4>
+            <pre><code>A[i] = B[i] for all i</code></pre>
+
+            <h4>Causality (A &lt; B):</h4>
+            <pre><code>A ≠ B AND A[i] ≤ B[i] for all i
+Meaning: A happened before B (A → B)</code></pre>
+
+            <h4>Concurrency (A ∥ B):</h4>
+            <pre><code>For some i, j: A[i] &lt; B[i] AND A[j] &gt; B[j]
+Meaning: A and B are concurrent (conflict)</code></pre>
+
+            <div class="callout-success">
+                <h3>Memory Aid: Vector Clock Comparisons "ECC"</h3>
+                <ul>
+                    <li><strong>E</strong>quality: all components equal</li>
+                    <li><strong>C</strong>ausality: one vector dominated by another (all components ≤)</li>
+                    <li><strong>C</strong>oncurrency: neither dominates (mixed comparisons)</li>
+                </ul>
+            </div>
+
+            <h3>Example: Vector Clock Evolution</h3>
+
+            <p><strong>System with 3 processes (Home, Laptop, Office):</strong></p>
+
+            <pre><code>Initial state:
+Home:   [0, 0, 0]
+Laptop: [0, 0, 0]
+Office: [0, 0, 0]
+
+Home writes:
+Home:   [1, 0, 0]  (incremented Home's counter)
+
+Home writes again:
+Home:   [2, 0, 0]  (incremented Home's counter)
+
+Laptop writes:
+Laptop: [0, 1, 0]  (incremented Laptop's counter)
+
+Home syncs with Laptop:
+Home:   [2, 1, 0]  (saw Laptop's [0,1,0], merged and incremented)
+
+Office writes:
+Office: [0, 0, 1]  (incremented Office's counter)
+
+Laptop syncs with Home:
+Laptop: [2, 2, 0]  (saw Home's [2,1,0], merged: max each component, then increment own)</code></pre>
+
+            <h4>Checking Causality:</h4>
+            <ul>
+                <li>[2, 0, 0] and [0, 1, 0]: <strong>Concurrent!</strong> (2 &gt; 0 but 0 &lt; 1)</li>
+                <li>[2, 0, 0] &lt; [2, 1, 0]: <strong>Causally ordered!</strong> (first is ≤ second in all components)</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Vector Clock Evolution</h3>
+            <p style="margin-bottom: 1rem;">Step through vector clock updates. Green = local increment, Blue = merge operation.</p>
+
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; justify-content: center;">
+                <button id="vc-prev" style="padding: 0.6rem 1.2rem; background: #2c3e50; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">◀ Prev</button>
+                <button id="vc-play" style="padding: 0.6rem 1.2rem; background: var(--secondary-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">▶ Play</button>
+                <button id="vc-next" style="padding: 0.6rem 1.2rem; background: #2c3e50; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Next ▶</button>
+                <button id="vc-reset" style="padding: 0.6rem 1.2rem; background: var(--accent-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Reset</button>
+            </div>
+
+            <div id="vc-step-display" style="text-align: center; padding: 1rem; background: var(--code-bg); border-radius: 5px; margin-bottom: 1.5rem; font-size: 1.1rem; font-weight: bold;">
+                Step <span id="vc-step-num">0</span>: <span id="vc-step-desc">Initial State</span>
+            </div>
+
+            <div id="vc-visualization" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-bottom: 1.5rem;">
+                <!-- Process displays will be inserted here -->
+            </div>
+
+            <div id="vc-explanation" style="padding: 1rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 5px;">
+                <strong>Explanation:</strong> <span id="vc-explain-text">Vector clocks start at [0, 0, 0]</span>
+            </div>
+
+            <script>
+            (function() {
+                const steps = [
+                    {
+                        desc: 'Initial State',
+                        clocks: { Home: [0, 0, 0], Laptop: [0, 0, 0], Office: [0, 0, 0] },
+                        highlight: null,
+                        explain: 'All processes start with vector clocks initialized to [0, 0, 0]'
+                    },
+                    {
+                        desc: 'Home writes',
+                        clocks: { Home: [1, 0, 0], Laptop: [0, 0, 0], Office: [0, 0, 0] },
+                        highlight: { process: 'Home', index: 0, type: 'increment' },
+                        explain: 'Home performs a local write and increments its own counter (index 0): [0,0,0] → [1,0,0]'
+                    },
+                    {
+                        desc: 'Home writes again',
+                        clocks: { Home: [2, 0, 0], Laptop: [0, 0, 0], Office: [0, 0, 0] },
+                        highlight: { process: 'Home', index: 0, type: 'increment' },
+                        explain: 'Home performs another local write and increments its counter: [1,0,0] → [2,0,0]'
+                    },
+                    {
+                        desc: 'Laptop writes',
+                        clocks: { Home: [2, 0, 0], Laptop: [0, 1, 0], Office: [0, 0, 0] },
+                        highlight: { process: 'Laptop', index: 1, type: 'increment' },
+                        explain: 'Laptop performs a local write and increments its own counter (index 1): [0,0,0] → [0,1,0]'
+                    },
+                    {
+                        desc: 'Home syncs with Laptop',
+                        clocks: { Home: [3, 1, 0], Laptop: [0, 1, 0], Office: [0, 0, 0] },
+                        highlight: { process: 'Home', index: null, type: 'merge' },
+                        explain: 'Home receives message from Laptop [0,1,0]. Merge: max([2,0,0], [0,1,0]) = [2,1,0], then increment own: [3,1,0]'
+                    },
+                    {
+                        desc: 'Office writes',
+                        clocks: { Home: [3, 1, 0], Laptop: [0, 1, 0], Office: [0, 0, 1] },
+                        highlight: { process: 'Office', index: 2, type: 'increment' },
+                        explain: 'Office performs a local write and increments its own counter (index 2): [0,0,0] → [0,0,1]'
+                    },
+                    {
+                        desc: 'Laptop syncs with Home',
+                        clocks: { Home: [3, 1, 0], Laptop: [3, 2, 0], Office: [0, 0, 1] },
+                        highlight: { process: 'Laptop', index: null, type: 'merge' },
+                        explain: 'Laptop receives from Home [3,1,0]. Merge: max([0,1,0], [3,1,0]) = [3,1,0], then increment own: [3,2,0]'
+                    }
+                ];
+
+                let currentStep = 0;
+                let playing = false;
+                let playInterval = null;
+
+                function renderStep() {
+                    const step = steps[currentStep];
+                    document.getElementById('vc-step-num').textContent = currentStep;
+                    document.getElementById('vc-step-desc').textContent = step.desc;
+                    document.getElementById('vc-explain-text').textContent = step.explain;
+
+                    const container = document.getElementById('vc-visualization');
+                    container.innerHTML = '';
+
+                    Object.keys(step.clocks).forEach((process, pIdx) => {
+                        const clock = step.clocks[process];
+                        const isHighlighted = step.highlight && step.highlight.process === process;
+                        const highlightType = isHighlighted ? step.highlight.type : null;
+
+                        const processDiv = document.createElement('div');
+                        processDiv.style.cssText = 'background: #f8f9fa; padding: 1.5rem; border-radius: 8px; text-align: center;';
+
+                        if (isHighlighted) {
+                            processDiv.style.background = highlightType === 'increment' ? 'rgba(39, 174, 96, 0.2)' : 'rgba(52, 152, 219, 0.2)';
+                            processDiv.style.border = highlightType === 'increment' ? '3px solid #27ae60' : '3px solid #3498db';
+                        }
+
+                        processDiv.innerHTML = `
+                            <h4 style="margin: 0 0 1rem 0; color: var(--primary-color);">${process}</h4>
+                            <div style="display: flex; justify-content: center; gap: 0.5rem; font-family: monospace; font-size: 1.3rem; font-weight: bold;">
+                                ${clock.map((val, idx) => {
+                                    let style = 'padding: 0.8rem 1rem; background: white; border-radius: 5px; min-width: 50px;';
+                                    if (isHighlighted && step.highlight.index === idx) {
+                                        style += highlightType === 'increment' ? ' border: 3px solid #27ae60; background: rgba(39, 174, 96, 0.1);' : '';
+                                    }
+                                    return `<div style="${style}">${val}</div>`;
+                                }).join('')}
+                            </div>
+                            <div style="margin-top: 0.8rem; font-size: 0.85rem; color: #666;">
+                                ${pIdx === 0 ? 'Index 0' : pIdx === 1 ? 'Index 1' : 'Index 2'}
+                            </div>
+                        `;
+
+                        container.appendChild(processDiv);
+                    });
+                }
+
+                function nextStep() {
+                    if (currentStep < steps.length - 1) {
+                        currentStep++;
+                        renderStep();
+                    } else {
+                        stopPlaying();
+                    }
+                }
+
+                function prevStep() {
+                    if (currentStep > 0) {
+                        currentStep--;
+                        renderStep();
+                    }
+                }
+
+                function resetSteps() {
+                    stopPlaying();
+                    currentStep = 0;
+                    renderStep();
+                }
+
+                function startPlaying() {
+                    if (!playing) {
+                        playing = true;
+                        document.getElementById('vc-play').textContent = '⏸ Pause';
+                        playInterval = setInterval(() => {
+                            nextStep();
+                        }, 2000);
+                    } else {
+                        stopPlaying();
+                    }
+                }
+
+                function stopPlaying() {
+                    playing = false;
+                    document.getElementById('vc-play').textContent = '▶ Play';
+                    if (playInterval) {
+                        clearInterval(playInterval);
+                        playInterval = null;
+                    }
+                }
+
+                document.getElementById('vc-prev').addEventListener('click', prevStep);
+                document.getElementById('vc-next').addEventListener('click', nextStep);
+                document.getElementById('vc-play').addEventListener('click', startPlaying);
+                document.getElementById('vc-reset').addEventListener('click', resetSteps);
+
+                // Initial render
+                renderStep();
+            })();
+            </script>
+        </div>
+
+        <section id="working-examples">
+            <h2>Working Through Examples</h2>
+
+            <h3>Example 1: Basic Causal Consistency (From Lecture 14)</h3>
+
+            <h4>Setup</h4>
+            <p>Four processes P0-P3, variables X, Y, Z all start at 0</p>
+
+            <pre><code>P0: X = 1, Y = 1
+P1: X = 2, Z = 1
+P2: while(Y != 1) {}, while(Z != 1) {}, R1 = X
+P3: while(Y != 1) {}, while(Z != 1) {}, R2 = X</code></pre>
+
+            <h4>Question</h4>
+            <p>Which outcomes are possible for (R1, R2)?</p>
+            <ol type="A">
+                <li>Both R1 and R2 contain 0</li>
+                <li>Both R1 and R2 contain 1</li>
+                <li>Both R1 and R2 contain 2</li>
+                <li>R1 contains 1 and R2 contains 2</li>
+                <li>R1 contains 2 and R2 contains 1</li>
+            </ol>
+
+            <h4>Analysis</h4>
+
+            <p><strong>Causal relationships:</strong></p>
+            <ul>
+                <li>P0: X=1 → Y=1 (program order)</li>
+                <li>P1: X=2 → Z=1 (program order)</li>
+                <li>X=1 ∥ X=2 (concurrent writes to X)</li>
+            </ul>
+
+            <p>When P2 exits both while loops:</p>
+            <ul>
+                <li>It has seen Y=1, so it has seen P0's Y=1</li>
+                <li>By causality, it must have seen X=1 (because X=1 → Y=1)</li>
+                <li>It has seen Z=1, so it has seen P1's Z=1</li>
+                <li>By causality, it must have seen X=2 (because X=2 → Z=1)</li>
+                <li>So P2 has seen both X=1 and X=2</li>
+            </ul>
+
+            <p>But X=1 and X=2 are <strong>concurrent</strong>! Causal consistency allows P2 and P3 to see them in different orders.</p>
+
+            <div class="callout-success">
+                <h4>Answer:</h4>
+                <ul>
+                    <li>A. <strong>NO</strong> (P2 and P3 must see at least one write)</li>
+                    <li>B. <strong>YES</strong> (both see X=1 last)</li>
+                    <li>C. <strong>YES</strong> (both see X=2 last)</li>
+                    <li>D. <strong>YES</strong> (P2 sees X=1 last, P3 sees X=2 last)</li>
+                    <li>E. <strong>YES</strong> (P2 sees X=2 last, P3 sees X=1 last)</li>
+                </ul>
+                <p><strong>Key insight</strong>: With causal consistency, D and E are both possible because X=1 and X=2 are concurrent!</p>
+            </div>
+
+            <h3>Example 2: Sequential vs Causal (Same Setup)</h3>
+
+            <p>With <strong>sequential consistency</strong>, the question was the same but:</p>
+            <ul>
+                <li>D and E would NOT be allowed</li>
+                <li>Why? Sequential requires a total order - everyone must agree on whether X=1 or X=2 came "last"</li>
+            </ul>
+
+            <div class="callout-info">
+                <p>This shows how causal consistency is more permissive than sequential consistency!</p>
+            </div>
+
+            <h3>Example 3: Vector Clock Trace (From Lecture 14)</h3>
+
+            <p><strong>Three processes with writes and merges:</strong></p>
+
+            <pre><code>From lecture 14 slide showing vector timestamps:
+Home writes:    [1, 0, 0]
+Home writes:    [2, 0, 0]
+Laptop writes:  [0, 1, 0]
+Laptop writes:  [0, 2, 0]
+Home merges:    [2, 2, 0] (received Laptop's [0,2,0])
+Laptop merges:  [1, 2, 0] (received Home's [1,0,0])</code></pre>
+
+            <h4>Detecting conflicts:</h4>
+            <p>If we have:</p>
+            <ul>
+                <li>Home's version: [2, 0, 0]</li>
+                <li>Laptop's version: [0, 1, 0]</li>
+            </ul>
+
+            <p>These are <strong>concurrent</strong>! Neither dominates the other:</p>
+            <ul>
+                <li>2 &gt; 0 (Home's component &gt; Laptop's)</li>
+                <li>0 &lt; 1 (Home's component &lt; Laptop's)</li>
+                <li>This is a <strong>conflict</strong>!</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Example 1 Execution</h3>
+            <p style="margin-bottom: 1.5rem;">P0: X=1, Y=1 | P1: X=2, Z=1 | P2, P3: wait for Y=1 and Z=1, then read X</p>
+
+            <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 style="margin-top: 0;">Causal Relationships:</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <strong style="color: #27ae60;">Causally Ordered:</strong><br>
+                        X=1 → Y=1 (program order on P0)<br>
+                        X=2 → Z=1 (program order on P1)
+                    </div>
+                    <div style="padding: 1rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 5px;">
+                        <strong style="color: #3498db;">Concurrent:</strong><br>
+                        X=1 ∥ X=2 (independent writes)
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <h4>Possible Outcomes for (R1, R2):</h4>
+                <div style="display: grid; gap: 1rem;">
+                    <div style="padding: 1rem; background: rgba(231, 76, 60, 0.1); border-left: 4px solid #e74c3c; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 0.5rem; color: #e74c3c;">
+                            ✗ A. Both R1 and R2 contain 0
+                        </div>
+                        <div style="font-size: 0.9rem; color: #555;">
+                            <strong>Why:</strong> P2 and P3 wait until Y=1 and Z=1, meaning they must see both X=1 and X=2
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 0.5rem; color: #27ae60;">
+                            ✓ B. Both R1 and R2 contain 1
+                        </div>
+                        <div style="font-size: 0.9rem; color: #555;">
+                            <strong>Why:</strong> Both see X=1 last (concurrent writes can be seen in any order)
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 0.5rem; color: #27ae60;">
+                            ✓ C. Both R1 and R2 contain 2
+                        </div>
+                        <div style="font-size: 0.9rem; color: #555;">
+                            <strong>Why:</strong> Both see X=2 last (concurrent writes can be seen in any order)
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 0.5rem; color: #27ae60;">
+                            ✓ D. R1 contains 1 and R2 contains 2
+                        </div>
+                        <div style="font-size: 0.9rem; color: #555;">
+                            <strong>Why:</strong> P2 sees X=1 last, P3 sees X=2 last (different machines can disagree on concurrent writes!)
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 0.5rem; color: #27ae60;">
+                            ✓ E. R1 contains 2 and R2 contains 1
+                        </div>
+                        <div style="font-size: 0.9rem; color: #555;">
+                            <strong>Why:</strong> P2 sees X=2 last, P3 sees X=1 last (different machines can disagree on concurrent writes!)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 1.5rem; background: var(--info-color); color: white; border-radius: 8px;">
+                <strong>Key Insight:</strong> With causal consistency, D and E are both possible because X=1 and X=2 are concurrent! Under sequential consistency, everyone must agree on the order, so D and E would not both be possible.
+            </div>
+        </div>
+
+        <section id="how-to-check">
+            <h2>How to Check Causal Consistency</h2>
+
+            <h3>Step-by-Step Method</h3>
+
+            <p><strong>Given a scenario with operations and results:</strong></p>
+
+            <ol>
+                <li>
+                    <strong>Identify all causal relationships</strong>
+                    <ul>
+                        <li>Use program order within each process</li>
+                        <li>Use message send/receive relationships</li>
+                        <li>Apply transitivity</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Identify concurrent operations</strong>
+                    <ul>
+                        <li>If A → B not true AND B → A not true, then A ∥ B</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Check if observations respect causality</strong>
+                    <ul>
+                        <li>For each operation, can it see what it causally should see?</li>
+                        <li>Concurrent operations can be seen in any order</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>For each machine's view</strong>
+                    <ul>
+                        <li>Causally related operations must appear in the same order</li>
+                        <li>Concurrent operations can appear in different orders</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Key Questions to Ask</h3>
+
+            <ul>
+                <li>Which operations are causally related? (Draw a happens-before diagram!)</li>
+                <li>Which operations are concurrent?</li>
+                <li>Does any machine see an effect before a cause? (Violation!)</li>
+                <li>Do different machines disagree about concurrent operations? (Allowed!)</li>
+            </ul>
+
+            <h3>Drawing Happens-Before Diagrams</h3>
+
+            <p>Use arrows to show causality:</p>
+            <pre><code>P1: A ──→ B ──→ C
+           ↓
+P2:        X ──→ Y
+           ↓
+P3:        Z</code></pre>
+
+            <p>In this diagram:</p>
+            <ul>
+                <li>A → B → C (program order on P1)</li>
+                <li>B → X (message from P1 to P2)</li>
+                <li>X → Y (program order on P2)</li>
+                <li>X → Z (message from P2 to P3)</li>
+                <li>Transitively: A → Z, B → Z, etc.</li>
+                <li>A ∥ X (no path between them)</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Happens-Before Diagram Tool</h3>
+            <p style="margin-bottom: 1.5rem;">Practice identifying causal relationships with pre-loaded scenarios.</p>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label style="font-weight: bold; margin-right: 1rem;">Select Scenario:</label>
+                <select id="scenario-select" style="padding: 0.6rem; border-radius: 5px; border: 2px solid var(--border-color); font-size: 1rem; cursor: pointer;">
+                    <option value="0">Scenario 1: Simple Chain</option>
+                    <option value="1">Scenario 2: Fork and Join</option>
+                    <option value="2">Scenario 3: Complex with Concurrency</option>
+                </select>
+            </div>
+
+            <div id="diagram-canvas" style="height: 400px; background: #f8f9fa; border-radius: 8px; padding: 20px; position: relative; overflow: hidden;">
+                <svg width="100%" height="100%"></svg>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding: 1rem; background: var(--code-bg); border-radius: 5px;">
+                <h4 style="margin-top: 0;">Legend:</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div><span style="color: #3498db; font-weight: bold;">━━</span> Program Order</div>
+                    <div><span style="color: #27ae60; font-weight: bold;">━━</span> Message Passing</div>
+                    <div><span style="color: #9b59b6; font-weight: bold;">╌╌</span> Transitive</div>
+                </div>
+            </div>
+
+            <div id="scenario-description" style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 5px;">
+                <!-- Scenario description will be inserted here -->
+            </div>
+
+            <script>
+            (function() {
+                const scenarios = [
+                    {
+                        name: 'Simple Chain',
+                        description: 'Three processes with a simple causal chain: P1→P2→P3',
+                        processes: [
+                            { id: 'P1', x: 150, events: [{ id: 'A', y: 100 }, { id: 'B', y: 200 }] },
+                            { id: 'P2', x: 400, events: [{ id: 'C', y: 150 }] },
+                            { id: 'P3', x: 650, events: [{ id: 'D', y: 250 }] }
+                        ],
+                        relations: [
+                            { from: 'A', to: 'B', type: 'program' },
+                            { from: 'B', to: 'C', type: 'message' },
+                            { from: 'C', to: 'D', type: 'message' },
+                            { from: 'A', to: 'C', type: 'transitive' },
+                            { from: 'B', to: 'D', type: 'transitive' },
+                            { from: 'A', to: 'D', type: 'transitive' }
+                        ]
+                    },
+                    {
+                        name: 'Fork and Join',
+                        description: 'One process forks to two, then they join. Shows concurrent execution.',
+                        processes: [
+                            { id: 'P1', x: 150, events: [{ id: 'A', y: 80 }] },
+                            { id: 'P2', x: 400, events: [{ id: 'B', y: 150 }, { id: 'C', y: 250 }] },
+                            { id: 'P3', x: 650, events: [{ id: 'D', y: 150 }, { id: 'E', y: 320 }] }
+                        ],
+                        relations: [
+                            { from: 'A', to: 'B', type: 'message' },
+                            { from: 'A', to: 'D', type: 'message' },
+                            { from: 'B', to: 'C', type: 'program' },
+                            { from: 'D', to: 'E', type: 'program' },
+                            { from: 'C', to: 'E', type: 'message' },
+                            { from: 'A', to: 'C', type: 'transitive' },
+                            { from: 'A', to: 'E', type: 'transitive' }
+                        ]
+                    },
+                    {
+                        name: 'Complex with Concurrency',
+                        description: 'Multiple processes with both causal and concurrent operations. Note: B ∥ D (concurrent)',
+                        processes: [
+                            { id: 'P1', x: 150, events: [{ id: 'A', y: 100 }, { id: 'B', y: 200 }] },
+                            { id: 'P2', x: 400, events: [{ id: 'C', y: 80 }, { id: 'D', y: 180 }] },
+                            { id: 'P3', x: 650, events: [{ id: 'E', y: 280 }] }
+                        ],
+                        relations: [
+                            { from: 'A', to: 'B', type: 'program' },
+                            { from: 'C', to: 'D', type: 'program' },
+                            { from: 'D', to: 'E', type: 'message' },
+                            { from: 'C', to: 'E', type: 'transitive' }
+                        ]
+                    }
+                ];
+
+                let currentScenario = 0;
+
+                function renderScenario() {
+                    const scenario = scenarios[currentScenario];
+                    const svg = document.querySelector('#diagram-canvas svg');
+                    svg.innerHTML = '';
+
+                    // Create defs for arrow markers
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    const markerTypes = { program: '#3498db', message: '#27ae60', transitive: '#9b59b6' };
+
+                    Object.entries(markerTypes).forEach(([type, color]) => {
+                        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker.setAttribute('id', `hb-arrow-${type}`);
+                        marker.setAttribute('markerWidth', '10');
+                        marker.setAttribute('markerHeight', '10');
+                        marker.setAttribute('refX', '9');
+                        marker.setAttribute('refY', '3');
+                        marker.setAttribute('orient', 'auto');
+                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        path.setAttribute('d', 'M0,0 L0,6 L9,3 z');
+                        path.setAttribute('fill', color);
+                        marker.appendChild(path);
+                        defs.appendChild(marker);
+                    });
+                    svg.appendChild(defs);
+
+                    // Store event positions
+                    const eventPos = {};
+
+                    // Draw processes and events
+                    scenario.processes.forEach(proc => {
+                        // Process line
+                        const minY = Math.min(...proc.events.map(e => e.y));
+                        const maxY = Math.max(...proc.events.map(e => e.y));
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', proc.x);
+                        line.setAttribute('y1', minY - 40);
+                        line.setAttribute('x2', proc.x);
+                        line.setAttribute('y2', maxY + 40);
+                        line.setAttribute('stroke', '#bdc3c7');
+                        line.setAttribute('stroke-width', '2');
+                        svg.appendChild(line);
+
+                        // Process label
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('x', proc.x);
+                        label.setAttribute('y', minY - 50);
+                        label.setAttribute('text-anchor', 'middle');
+                        label.setAttribute('font-weight', 'bold');
+                        label.setAttribute('fill', '#2c3e50');
+                        label.textContent = proc.id;
+                        svg.appendChild(label);
+
+                        // Events
+                        proc.events.forEach(event => {
+                            eventPos[event.id] = { x: proc.x, y: event.y };
+
+                            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                            circle.setAttribute('cx', proc.x);
+                            circle.setAttribute('cy', event.y);
+                            circle.setAttribute('r', 20);
+                            circle.setAttribute('fill', '#2c3e50');
+                            circle.setAttribute('stroke', '#3498db');
+                            circle.setAttribute('stroke-width', '2');
+                            svg.appendChild(circle);
+
+                            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            text.setAttribute('x', proc.x);
+                            text.setAttribute('y', event.y + 5);
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', 'white');
+                            text.setAttribute('font-weight', 'bold');
+                            text.textContent = event.id;
+                            svg.appendChild(text);
+                        });
+                    });
+
+                    // Draw arrows
+                    scenario.relations.forEach(rel => {
+                        const from = eventPos[rel.from];
+                        const to = eventPos[rel.to];
+
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', from.x);
+                        line.setAttribute('y1', from.y);
+                        line.setAttribute('x2', to.x);
+                        line.setAttribute('y2', to.y);
+                        line.setAttribute('stroke', markerTypes[rel.type]);
+                        line.setAttribute('stroke-width', rel.type === 'transitive' ? '1.5' : '2.5');
+                        line.setAttribute('marker-end', `url(#hb-arrow-${rel.type})`);
+
+                        if (rel.type === 'transitive') {
+                            line.setAttribute('stroke-dasharray', '5,5');
+                        }
+
+                        svg.insertBefore(line, svg.querySelector('circle'));
+                    });
+
+                    // Update description
+                    document.getElementById('scenario-description').innerHTML = `
+                        <strong>${scenario.name}:</strong> ${scenario.description}
+                    `;
+                }
+
+                document.getElementById('scenario-select').addEventListener('change', (e) => {
+                    currentScenario = parseInt(e.target.value);
+                    renderScenario();
+                });
+
+                renderScenario();
+            })();
+            </script>
+        </div>
+
+        <section id="common-pitfalls">
+            <h2>Common Pitfalls and Tricks</h2>
+
+            <h3>Pitfall 1: Thinking Causal = Sequential for Related Operations</h3>
+            <div class="callout-warning">
+                <p><strong>Wrong thinking</strong>: "These operations are causally related, so causal consistency acts just like sequential consistency"</p>
+                <p><strong>Right thinking</strong>: "Causal consistency is weaker than sequential even for related operations, because it allows concurrent operations to be reordered"</p>
+            </div>
+
+            <h3>Pitfall 2: Missing Transitive Causality</h3>
+            <div class="callout-warning">
+                <p><strong>Wrong thinking</strong>: "P1 writes X, P2 writes Y, they're independent"</p>
+                <p><strong>Right thinking</strong>: "Did P2 read X before writing Y? If so, X → Y by transitivity!"</p>
+            </div>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>P1: X = 1
+P2: read X (sees 1), then Y = 2</code></pre>
+            <p>Here X=1 → Y=2 even though they're on different processes!</p>
+
+            <h3>Pitfall 3: Confusing Vector Clock Components</h3>
+            <div class="callout-warning">
+                <p><strong>Wrong thinking</strong>: "Higher vector clock values mean later in time"</p>
+                <p><strong>Right thinking</strong>: "Vector clocks show causal relationships, not chronological order"</p>
+            </div>
+
+            <p><strong>Example:</strong></p>
+            <ul>
+                <li>[5, 0, 0] and [0, 1, 0] are concurrent, even though 5 &gt;&gt; 1</li>
+            </ul>
+
+            <h3>Pitfall 4: Forgetting About Concurrent Writes</h3>
+            <div class="callout-warning">
+                <p><strong>Scenario</strong>: Two machines write the same variable concurrently</p>
+                <p><strong>Causal consistency</strong>: Different machines can see these writes in different orders!</p>
+                <p><strong>Common mistake</strong>: Thinking everyone must agree (that's sequential consistency)</p>
+            </div>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>M1: X = 1
+M2: X = 2
+(Concurrent if no communication between M1 and M2)
+
+M3 might see: X = 1 then X = 2 (final value: 2)
+M4 might see: X = 2 then X = 1 (final value: 1)
+
+Both are valid under causal consistency!</code></pre>
+
+            <h3>Pitfall 5: Network Partition Confusion</h3>
+            <div class="callout-success">
+                <p><strong>Key advantage of causal consistency</strong>: Can continue operating during network partitions!</p>
+                <p><strong>Why?</strong></p>
+                <ul>
+                    <li>Sequential consistency requires coordination for ALL writes</li>
+                    <li>If network is partitioned, can't coordinate → system must stop writing</li>
+                    <li>Causal consistency only needs to track local causality</li>
+                    <li>Can keep writing, detect conflicts later</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="practice-problems">
+            <h2>Practice Problems</h2>
+
+            <h3>Problem 1: Identifying Causality</h3>
+
+            <p>Three processes:</p>
+            <pre><code>P1: A, B
+P2: receives A, then C, D
+P3: receives D, then E</code></pre>
+
+            <p>Which operations are causally related?</p>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>Causal relationships:</strong></p>
+                    <ul>
+                        <li>A → B (program order on P1)</li>
+                        <li>A → C (message from P1 to P2)</li>
+                        <li>C → D (program order on P2)</li>
+                        <li>D → E (message from P2 to P3)</li>
+                        <li>Transitively: A → D, A → E, C → E</li>
+                    </ul>
+                    <p><strong>Concurrent operations:</strong></p>
+                    <ul>
+                        <li>B ∥ C (no causal path)</li>
+                        <li>B ∥ D (no causal path)</li>
+                        <li>B ∥ E (no causal path)</li>
+                    </ul>
+                </div>
+            </details>
+
+            <h3>Problem 2: Vector Clock Comparison</h3>
+
+            <p>Given these vector clocks, determine relationships:</p>
+            <ul>
+                <li>V1 = [3, 1, 0]</li>
+                <li>V2 = [2, 2, 0]</li>
+                <li>V3 = [3, 1, 1]</li>
+            </ul>
+
+            <p>Which pairs are causally related? Which are concurrent?</p>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>V1 vs V2:</strong></p>
+                    <ul>
+                        <li>V1[0]=3 &gt; V2[0]=2</li>
+                        <li>V1[1]=1 &lt; V2[1]=2</li>
+                        <li>Mixed! → <strong>Concurrent</strong> (V1 ∥ V2)</li>
+                    </ul>
+
+                    <p><strong>V1 vs V3:</strong></p>
+                    <ul>
+                        <li>V1[0]=3 ≤ V3[0]=3 ✓</li>
+                        <li>V1[1]=1 ≤ V3[1]=1 ✓</li>
+                        <li>V1[2]=0 ≤ V3[2]=1 ✓</li>
+                        <li>All components ≤ and at least one &lt; → <strong>V1 → V3</strong> (V1 happened before V3)</li>
+                    </ul>
+
+                    <p><strong>V2 vs V3:</strong></p>
+                    <ul>
+                        <li>V2[0]=2 &lt; V3[0]=3</li>
+                        <li>V2[1]=2 &gt; V3[1]=1</li>
+                        <li>Mixed! → <strong>Concurrent</strong> (V2 ∥ V3)</li>
+                    </ul>
+                </div>
+            </details>
+
+            <h3>Problem 3: Can This Happen?</h3>
+
+            <p>System with causal consistency:</p>
+            <pre><code>M1: X = 1, Y = 1
+M2: reads Y = 1, then X = 0</code></pre>
+
+            <p>Is this possible?</p>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-warning">
+                    <p><strong>NO!</strong></p>
+                    <p><strong>Reasoning:</strong></p>
+                    <ul>
+                        <li>On M1: X=1 → Y=1 (program order creates causality)</li>
+                        <li>If M2 reads Y=1, it has observed M1's write to Y</li>
+                        <li>By causality, M2 must also observe M1's write to X</li>
+                        <li>M2 cannot read X=0 after reading Y=1</li>
+                    </ul>
+                    <p>This would violate causal consistency!</p>
+                </div>
+            </details>
+
+            <h3>Problem 4: Sequential vs Causal</h3>
+
+            <pre><code>M1: X = 1
+M2: X = 2
+M3: reads X = 1, then X = 2
+M4: reads X = 2, then X = 1</code></pre>
+
+            <p>Possible with:</p>
+            <ol type="A">
+                <li>Sequential consistency?</li>
+                <li>Causal consistency?</li>
+            </ol>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>Sequential consistency: NO</strong></p>
+                    <ul>
+                        <li>Requires a total order of all operations</li>
+                        <li>If total order is X=1, X=2, then everyone sees X=2 last</li>
+                        <li>If total order is X=2, X=1, then everyone sees X=1 last</li>
+                        <li>M3 and M4 disagree → Violates sequential consistency</li>
+                    </ul>
+
+                    <p><strong>Causal consistency: MAYBE</strong></p>
+                    <ul>
+                        <li>Are X=1 and X=2 causally related?</li>
+                        <li>If M1 and M2 operated independently (no communication), then X=1 ∥ X=2</li>
+                        <li>Concurrent writes can be seen in different orders</li>
+                        <li>If they're concurrent: <strong>YES, possible!</strong></li>
+                        <li>If M2 somehow saw M1's write before writing (e.g., read X first), then X=1 → X=2, and this would be <strong>NO</strong></li>
+                    </ul>
+
+                    <p><strong>Answer depends on whether the writes are concurrent!</strong></p>
+                </div>
+            </details>
+
+            <h3>Problem 5: File Synchronization</h3>
+
+            <p>From the lecture on vector time pairs:</p>
+            <pre><code>Three devices: A, B, C
+A writes file v1: &lt;A1, B∅, C∅&gt;
+B writes file v1: &lt;A∅, B1, C∅&gt;
+C receives A's version, then B's version</code></pre>
+
+            <p>What should C do?</p>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-info">
+                    <p><strong>Conflict detection:</strong></p>
+                    <ul>
+                        <li>A's version: &lt;A1, B∅, C∅&gt;</li>
+                        <li>B's version: &lt;A∅, B1, C∅&gt;</li>
+                        <li>Neither dominates: A1 &gt; A∅ but B∅ &lt; B1</li>
+                        <li>These are <strong>concurrent</strong> writes!</li>
+                    </ul>
+
+                    <p><strong>What C should do:</strong></p>
+                    <ul>
+                        <li>Detect the conflict (both versions are concurrent)</li>
+                        <li>Cannot automatically merge</li>
+                        <li>Need manual conflict resolution or keep both versions</li>
+                        <li>This is why file sync systems (Dropbox, etc.) sometimes create "conflicted copy" files!</li>
+                    </ul>
+                </div>
+            </details>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Practice Problem Simulator</h3>
+            <p style="margin-bottom: 1.5rem;">Test your understanding with interactive practice problems. Click "Show Hint" for help!</p>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label style="font-weight: bold; margin-right: 1rem;">Select Problem:</label>
+                <select id="problem-select" style="padding: 0.6rem; border-radius: 5px; border: 2px solid var(--border-color); font-size: 1rem; cursor: pointer;">
+                    <option value="0">Problem 1: Vector Clock Comparison</option>
+                    <option value="1">Problem 2: Detect Causality</option>
+                    <option value="2">Problem 3: Valid Orderings</option>
+                </select>
+            </div>
+
+            <div id="problem-display" style="padding: 1.5rem; background: #f8f9fa; border-radius: 8px; margin-bottom: 1.5rem; min-height: 200px;">
+                <!-- Problem content will be inserted here -->
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <button id="show-hint" style="padding: 0.6rem 1.2rem; background: var(--warning-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    Show Hint
+                </button>
+                <button id="show-solution" style="padding: 0.6rem 1.2rem; background: var(--success-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    Show Solution
+                </button>
+                <button id="reset-problem" style="padding: 0.6rem 1.2rem; background: var(--accent-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    Reset
+                </button>
+            </div>
+
+            <div id="hint-display" style="display: none; padding: 1rem; background: rgba(243, 156, 18, 0.1); border-left: 4px solid var(--warning-color); border-radius: 5px; margin-bottom: 1rem;">
+                <!-- Hint will be displayed here -->
+            </div>
+
+            <div id="solution-display" style="display: none; padding: 1rem; background: rgba(39, 174, 96, 0.1); border-left: 4px solid var(--success-color); border-radius: 5px;">
+                <!-- Solution will be displayed here -->
+            </div>
+
+            <script>
+            (function() {
+                const problems = [
+                    {
+                        title: 'Vector Clock Comparison',
+                        question: `Given these vector clocks:<br><br>
+                            V1 = [3, 1, 0]<br>
+                            V2 = [2, 2, 0]<br>
+                            V3 = [3, 1, 1]<br><br>
+                            Determine the relationships between each pair.`,
+                        hint: `Remember: A < B if A[i] ≤ B[i] for all i, and A ≠ B.<br>
+                               If some components are greater and some are smaller, they're concurrent.`,
+                        solution: `<strong>V1 vs V2:</strong><br>
+                            V1[0]=3 > V2[0]=2 ✓<br>
+                            V1[1]=1 < V2[1]=2 ✗<br>
+                            Mixed! → <span style="color: #3498db; font-weight: bold;">Concurrent (V1 ∥ V2)</span><br><br>
+
+                            <strong>V1 vs V3:</strong><br>
+                            V1[0]=3 ≤ V3[0]=3 ✓<br>
+                            V1[1]=1 ≤ V3[1]=1 ✓<br>
+                            V1[2]=0 ≤ V3[2]=1 ✓<br>
+                            All ≤ and at least one < → <span style="color: #27ae60; font-weight: bold;">V1 → V3 (happens-before)</span><br><br>
+
+                            <strong>V2 vs V3:</strong><br>
+                            V2[0]=2 < V3[0]=3 ✓<br>
+                            V2[1]=2 > V3[1]=1 ✗<br>
+                            Mixed! → <span style="color: #3498db; font-weight: bold;">Concurrent (V2 ∥ V3)</span>`
+                    },
+                    {
+                        title: 'Detect Causality',
+                        question: `Three processes:<br>
+                            P1: A, B<br>
+                            P2: receives A, then C, D<br>
+                            P3: receives D, then E<br><br>
+                            Which operations are causally related?`,
+                        hint: `Use the three rules: Program order, Message send/receive, and Transitivity.<br>
+                               Draw arrows for each causal relationship you find.`,
+                        solution: `<strong>Causal relationships:</strong><br>
+                            • A → B (program order on P1)<br>
+                            • A → C (message from P1 to P2)<br>
+                            • C → D (program order on P2)<br>
+                            • D → E (message from P2 to P3)<br><br>
+
+                            <strong>Transitive relationships:</strong><br>
+                            • A → D (A → C → D)<br>
+                            • A → E (A → C → D → E)<br>
+                            • C → E (C → D → E)<br>
+                            • B → C (B follows A, A → C)<br>
+                            • B → D, B → E (transitively)<br><br>
+
+                            <strong>Concurrent:</strong><br>
+                            • B ∥ C (no causal path in either direction initially, but B → A is false while A → C is true)`
+                    },
+                    {
+                        title: 'Valid Orderings',
+                        question: `M1: X = 1, Y = 1<br>
+                            M2: X = 2, Y = 2<br>
+                            M3: reads Y = 1, then X = ?<br>
+                            M4: reads Y = 2, then X = ?<br><br>
+                            Is this possible with causal consistency?`,
+                        hint: `Identify causal relationships within each machine.<br>
+                               Are the writes X=1 and X=2 causally related or concurrent?<br>
+                               When M3 reads Y=1, what must it have seen about X?`,
+                        solution: `<strong>Causal relationships:</strong><br>
+                            • On M1: X=1 → Y=1 (program order)<br>
+                            • On M2: X=2 → Y=2 (program order)<br>
+                            • X=1 and X=2 are <span style="color: #3498db; font-weight: bold;">concurrent</span> (no communication between M1 and M2)<br><br>
+
+                            <strong>Analysis:</strong><br>
+                            • When M3 reads Y=1, it must have seen X=1 (causality: X=1 → Y=1)<br>
+                            • When M4 reads Y=2, it must have seen X=2 (causality: X=2 → Y=2)<br>
+                            • Since X=1 and X=2 are concurrent, M3 and M4 can see them in different orders<br><br>
+
+                            <strong>Answer:</strong> <span style="color: #27ae60; font-weight: bold;">YES, possible with causal consistency!</span><br>
+                            M3 could see X=2 after Y=1, and M4 could see X=1 after Y=2 (if concurrent)<br><br>
+
+                            <strong>Note:</strong> NOT possible with sequential consistency (requires total order)`
+                    }
+                ];
+
+                let currentProblem = 0;
+
+                function displayProblem() {
+                    const problem = problems[currentProblem];
+                    document.getElementById('problem-display').innerHTML = `
+                        <h4 style="margin-top: 0; color: var(--primary-color);">${problem.title}</h4>
+                        <div style="font-size: 1.05rem; line-height: 1.8;">${problem.question}</div>
+                    `;
+                    hideHintAndSolution();
+                }
+
+                function hideHintAndSolution() {
+                    document.getElementById('hint-display').style.display = 'none';
+                    document.getElementById('solution-display').style.display = 'none';
+                }
+
+                function showHint() {
+                    const problem = problems[currentProblem];
+                    const hintDisplay = document.getElementById('hint-display');
+                    hintDisplay.innerHTML = `<strong>Hint:</strong> ${problem.hint}`;
+                    hintDisplay.style.display = 'block';
+                }
+
+                function showSolution() {
+                    const problem = problems[currentProblem];
+                    const solutionDisplay = document.getElementById('solution-display');
+                    solutionDisplay.innerHTML = `<strong>Solution:</strong><br><br>${problem.solution}`;
+                    solutionDisplay.style.display = 'block';
+                }
+
+                document.getElementById('problem-select').addEventListener('change', (e) => {
+                    currentProblem = parseInt(e.target.value);
+                    displayProblem();
+                });
+
+                document.getElementById('show-hint').addEventListener('click', showHint);
+                document.getElementById('show-solution').addEventListener('click', showSolution);
+                document.getElementById('reset-problem').addEventListener('click', hideHintAndSolution);
+
+                displayProblem();
+            })();
+            </script>
+        </div>
+
+        <section id="memory-aids">
+            <h2>Memory Aids</h2>
+
+            <div class="callout-success">
+                <h3>The "Social Media Rule"</h3>
+                <p><strong>Mnemonic</strong>: "See before speak, speak before others see"</p>
+                <p>If you reply to a post, you must have seen it first. Everyone who sees your reply must also see the original post. But two unrelated posts can appear in any order in different feeds.</p>
+            </div>
+
+            <div class="callout-info">
+                <h3>Acronym: CAUSE</h3>
+                <ul>
+                    <li><strong>C</strong>oncurrent operations can differ</li>
+                    <li><strong>A</strong>ll processes preserve their own order</li>
+                    <li><strong>U</strong>nrelated events = no ordering required</li>
+                    <li><strong>S</strong>end-receive creates happens-before</li>
+                    <li><strong>E</strong>ffects must follow causes</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h3>Vector Clock Mnemonic: "MAX and ADD"</h3>
+                <p>When receiving a message:</p>
+                <ul>
+                    <li><strong>MAX</strong> all components (merge vector clocks)</li>
+                    <li><strong>ADD</strong> 1 to your own component</li>
+                </ul>
+            </div>
+
+            <div class="callout-info">
+                <h3>The "Twitter Thread Rule"</h3>
+                <ul>
+                    <li>Original tweet → Reply must be seen in order (causality)</li>
+                    <li>Two original tweets can appear in any order (concurrency)</li>
+                </ul>
+            </div>
+
+            <h3>Visual Mnemonic: Causality vs Concurrency</h3>
+            <pre><code>Causality (→):     A ──→ B    (A must come before B)
+Concurrency (∥):   A          (A and B can be in any order)
+                   B</code></pre>
+        </section>
+
+        <section id="real-world-systems">
+            <h2>Real-World Systems</h2>
+
+            <h3>Systems Using Causal Consistency</h3>
+
+            <ol>
+                <li>
+                    <strong>COPS (Clusters of Order-Preserving Servers)</strong>
+                    <ul>
+                        <li>Research system from Princeton</li>
+                        <li>Provides causal+ consistency across geo-distributed data centers</li>
+                        <li>Used for web applications needing strong guarantees</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Eiger (Stronger Semantics for Low-Latency Geo-Replicated Storage)</strong>
+                    <ul>
+                        <li>Extends COPS with multi-key operations</li>
+                        <li>Used in industry for globally distributed applications</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>MongoDB (with Causal Consistency option)</strong>
+                    <ul>
+                        <li>Can be configured for causal consistency</li>
+                        <li>Useful for applications that need causal guarantees</li>
+                        <li>Trade-off between performance and consistency</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Bolt-on Causal Consistency</strong>
+                    <ul>
+                        <li>Research system that adds causal consistency to existing systems</li>
+                        <li>Shows how to retrofit causality into eventually consistent stores</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Why Use Causal Consistency?</h3>
+
+            <h4>Better than eventual consistency:</h4>
+            <ul>
+                <li>Prevents "reply before original post" anomalies</li>
+                <li>Maintains intuitive cause-effect relationships</li>
+                <li>Users don't see confusing out-of-order updates</li>
+            </ul>
+
+            <h4>Better performance than sequential consistency:</h4>
+            <ul>
+                <li>No need for total ordering of all operations</li>
+                <li>Can operate during network partitions</li>
+                <li>Lower latency for geo-distributed systems</li>
+                <li>More parallel operations</li>
+            </ul>
+
+            <h4>Use cases:</h4>
+            <ul>
+                <li>Social media platforms (posts and comments)</li>
+                <li>Collaborative editing (Google Docs style)</li>
+                <li>Message queues with dependencies</li>
+                <li>Geo-replicated databases</li>
+            </ul>
+
+            <h3>Systems NOT Using Causal Consistency</h3>
+
+            <ol>
+                <li>
+                    <strong>Amazon DynamoDB (default mode)</strong>
+                    <ul>
+                        <li>Uses eventual consistency by default</li>
+                        <li>Weaker guarantees but better performance</li>
+                        <li>Causal anomalies possible</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Cassandra (default mode)</strong>
+                    <ul>
+                        <li>Eventually consistent</li>
+                        <li>Can have causal violations</li>
+                        <li>Trade-off for very high availability</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Redis (single master)</strong>
+                    <ul>
+                        <li>Actually provides stronger guarantees (close to sequential)</li>
+                        <li>Single master serializes writes</li>
+                        <li>Different approach to consistency</li>
+                    </ul>
+                </li>
+            </ol>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Real-World Systems Comparison</h3>
+            <p style="margin-bottom: 1.5rem;">Compare distributed systems by consistency model. Click on a system for details.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                <div class="system-card" data-system="cops" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-radius: 8px; border-left: 5px solid #f39c12; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #f39c12;">COPS</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Causal+ Consistency</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> Social media, collaborative editing<br>
+                        <strong>Partition Tolerance:</strong> High<br>
+                        <strong>Performance:</strong> Medium latency
+                    </div>
+                </div>
+
+                <div class="system-card" data-system="mongodb" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-radius: 8px; border-left: 5px solid #f39c12; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #f39c12;">MongoDB</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Causal (configurable)</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> Web apps, content management<br>
+                        <strong>Partition Tolerance:</strong> High<br>
+                        <strong>Performance:</strong> Good throughput
+                    </div>
+                </div>
+
+                <div class="system-card" data-system="dynamodb" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(39, 174, 96, 0.1), rgba(39, 174, 96, 0.05)); border-radius: 8px; border-left: 5px solid #27ae60; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #27ae60;">DynamoDB</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Eventual Consistency</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> High-scale web services, IoT<br>
+                        <strong>Partition Tolerance:</strong> Very High<br>
+                        <strong>Performance:</strong> Very low latency
+                    </div>
+                </div>
+
+                <div class="system-card" data-system="cassandra" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(39, 174, 96, 0.1), rgba(39, 174, 96, 0.05)); border-radius: 8px; border-left: 5px solid #27ae60; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #27ae60;">Cassandra</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Eventual Consistency</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> Time series, high availability apps<br>
+                        <strong>Partition Tolerance:</strong> Very High<br>
+                        <strong>Performance:</strong> High throughput
+                    </div>
+                </div>
+
+                <div class="system-card" data-system="redis" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(231, 76, 60, 0.1), rgba(231, 76, 60, 0.05)); border-radius: 8px; border-left: 5px solid #e74c3c; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #e74c3c;">Redis</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Strong (single master)</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> Caching, session storage<br>
+                        <strong>Partition Tolerance:</strong> Medium<br>
+                        <strong>Performance:</strong> Very fast (in-memory)
+                    </div>
+                </div>
+
+                <div class="system-card" data-system="eiger" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-radius: 8px; border-left: 5px solid #f39c12; cursor: pointer; transition: transform 0.2s;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #f39c12;">Eiger</h4>
+                    <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.8rem;">Causal Consistency</div>
+                    <div style="font-size: 0.85rem; line-height: 1.6;">
+                        <strong>Use Cases:</strong> Geo-distributed storage<br>
+                        <strong>Partition Tolerance:</strong> High<br>
+                        <strong>Performance:</strong> Low latency writes
+                    </div>
+                </div>
+            </div>
+
+            <div id="system-details" style="padding: 1.5rem; background: var(--code-bg); border-radius: 8px; display: none;">
+                <h4 style="margin-top: 0;">System Details</h4>
+                <div id="system-details-content"></div>
+            </div>
+
+            <div style="margin-top: 2rem; padding: 1.5rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 5px;">
+                <h4 style="margin-top: 0;">Legend:</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div><span style="color: #e74c3c; font-weight: bold;">■</span> Strong Consistency (Sequential-like)</div>
+                    <div><span style="color: #f39c12; font-weight: bold;">■</span> Causal Consistency</div>
+                    <div><span style="color: #27ae60; font-weight: bold;">■</span> Eventual Consistency</div>
+                </div>
+            </div>
+
+            <style>
+                .system-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                }
+            </style>
+
+            <script>
+            (function() {
+                const systemDetails = {
+                    cops: {
+                        name: 'COPS (Clusters of Order-Preserving Servers)',
+                        description: 'Research system from Princeton providing causal+ consistency across geo-distributed data centers.',
+                        vectorClocks: 'Yes',
+                        cap: 'AP (Available, Partition-tolerant)',
+                        advantages: 'Provides strong guarantees while maintaining availability during partitions',
+                        disadvantages: 'More complex than eventual consistency, requires metadata tracking'
+                    },
+                    mongodb: {
+                        name: 'MongoDB',
+                        description: 'Popular document database with configurable consistency levels including causal consistency.',
+                        vectorClocks: 'Session-based causal consistency',
+                        cap: 'CP or AP (configurable)',
+                        advantages: 'Flexible consistency models, good tooling, widely adopted',
+                        disadvantages: 'Causal consistency requires careful session management'
+                    },
+                    dynamodb: {
+                        name: 'Amazon DynamoDB',
+                        description: 'Highly available key-value store using eventual consistency by default.',
+                        vectorClocks: 'Version vectors for conflict detection',
+                        cap: 'AP (Available, Partition-tolerant)',
+                        advantages: 'Extremely scalable, very low latency, fully managed',
+                        disadvantages: 'Eventual consistency can lead to anomalies, must handle conflicts'
+                    },
+                    cassandra: {
+                        name: 'Apache Cassandra',
+                        description: 'Distributed NoSQL database designed for high availability and scalability.',
+                        vectorClocks: 'No (uses timestamps)',
+                        cap: 'AP (Available, Partition-tolerant)',
+                        advantages: 'Linear scalability, no single point of failure, tunable consistency',
+                        disadvantages: 'Eventually consistent by default, complex operational model'
+                    },
+                    redis: {
+                        name: 'Redis',
+                        description: 'In-memory data structure store with single-master replication.',
+                        vectorClocks: 'No',
+                        cap: 'CP (Consistent, Partition-intolerant)',
+                        advantages: 'Extremely fast, rich data structures, simple model',
+                        disadvantages: 'Single master limits write scalability, not partition-tolerant'
+                    },
+                    eiger: {
+                        name: 'Eiger',
+                        description: 'Research system extending COPS with multi-key operations and stronger semantics.',
+                        vectorClocks: 'Yes',
+                        cap: 'AP (Available, Partition-tolerant)',
+                        advantages: 'Stronger guarantees than basic causal consistency, supports transactions',
+                        disadvantages: 'Research prototype, higher overhead than eventual consistency'
+                    }
+                };
+
+                document.querySelectorAll('.system-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        const system = card.dataset.system;
+                        const details = systemDetails[system];
+
+                        document.getElementById('system-details-content').innerHTML = `
+                            <h5 style="color: var(--primary-color); margin: 0 0 1rem 0;">${details.name}</h5>
+                            <p style="margin-bottom: 1rem;">${details.description}</p>
+                            <div style="display: grid; gap: 0.8rem;">
+                                <div><strong>Vector Clocks:</strong> ${details.vectorClocks}</div>
+                                <div><strong>CAP Positioning:</strong> ${details.cap}</div>
+                                <div><strong>Advantages:</strong> ${details.advantages}</div>
+                                <div><strong>Disadvantages:</strong> ${details.disadvantages}</div>
+                            </div>
+                        `;
+
+                        document.getElementById('system-details').style.display = 'block';
+                        document.getElementById('system-details').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    });
+                });
+            })();
+            </script>
+        </div>
+
+        <section id="implementation-notes">
+            <h2>Implementation Notes</h2>
+
+            <h3>How to Implement Causal Consistency</h3>
+
+            <p><strong>Core techniques:</strong></p>
+
+            <ol>
+                <li>
+                    <strong>Vector Clocks</strong>
+                    <ul>
+                        <li>Each write tagged with vector timestamp</li>
+                        <li>On read, check vector clock to ensure causality</li>
+                        <li>Only show writes that respect happens-before</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Dependency Tracking</strong>
+                    <ul>
+                        <li>Each write includes set of writes it depends on</li>
+                        <li>Before showing write W, ensure all dependencies visible</li>
+                        <li>Example: Reply includes ID of original post</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Version Vectors</strong>
+                    <ul>
+                        <li>Track which writes each replica has seen</li>
+                        <li>Only send writes whose dependencies are satisfied</li>
+                        <li>Used in systems like Riak, Dynamo</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Performance Characteristics</h3>
+
+            <h4>Advantages:</h4>
+            <ul>
+                <li>No global coordination needed</li>
+                <li>Can operate during partitions (AP in CAP theorem)</li>
+                <li>Lower latency than sequential consistency</li>
+                <li>Higher throughput for concurrent operations</li>
+            </ul>
+
+            <h4>Disadvantages:</h4>
+            <ul>
+                <li>More complex than eventual consistency</li>
+                <li>Metadata overhead (vector clocks, dependencies)</li>
+                <li>Conflict detection and resolution needed</li>
+                <li>Harder to reason about than sequential consistency</li>
+            </ul>
+
+            <h4>Trade-offs:</h4>
+            <ul>
+                <li><strong>Space</strong>: O(N) metadata per operation (N = number of processes)</li>
+                <li><strong>Time</strong>: O(N) comparison for causality checks</li>
+                <li><strong>Network</strong>: Must transmit vector clocks with operations</li>
+            </ul>
+        </section>
+
+        <section id="cap-theorem">
+            <h2>Causal Consistency and the CAP Theorem</h2>
+
+            <h3>CAP Theorem Refresher</h3>
+
+            <p>Can only choose 2 of 3:</p>
+            <ul>
+                <li><strong>C</strong>onsistency: All nodes see the same data</li>
+                <li><strong>A</strong>vailability: Every request receives a response</li>
+                <li><strong>P</strong>artition tolerance: System works despite network failures</li>
+            </ul>
+
+            <h3>Where Does Causal Consistency Fit?</h3>
+
+            <div class="callout-info">
+                <p><strong>Sequential consistency: CP</strong></p>
+                <ul>
+                    <li>Requires coordination → can't be available during partitions</li>
+                    <li>Example: Must stop serving writes if can't reach coordinator</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <p><strong>Causal consistency: AP</strong></p>
+                <ul>
+                    <li>Can continue operating during partitions!</li>
+                    <li>Each partition tracks its own causality</li>
+                    <li>Conflicts detected and resolved later</li>
+                    <li>Gives up on total ordering (the "C" in CAP for sequential)</li>
+                </ul>
+            </div>
+
+            <div class="callout-info">
+                <p><strong>Eventual consistency: AP</strong></p>
+                <ul>
+                    <li>Also available during partitions</li>
+                    <li>But weaker than causal (no causality guarantees)</li>
+                </ul>
+            </div>
+
+            <h3>Why Causal Consistency Allows Partition Tolerance</h3>
+
+            <div class="callout-success">
+                <p><strong>Key insight</strong>: Causal consistency only requires local information!</p>
+            </div>
+
+            <p>During a partition:</p>
+            <ul>
+                <li>Each side can independently track causality using vector clocks</li>
+                <li>No need to coordinate with other side</li>
+                <li>When partition heals, use vector clocks to detect conflicts</li>
+                <li>Merge or resolve conflicts as needed</li>
+            </ul>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>Before partition:
+A, B, C all connected
+
+Partition occurs: {A, B} | {C}
+
+A and B can continue:
+- Track causality locally
+- Vector clocks work within partition
+
+C can continue independently:
+- Track causality locally
+- Vector clocks work within partition
+
+After partition heals:
+- Compare vector clocks
+- Detect concurrent updates
+- Resolve conflicts</code></pre>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: CAP Theorem and Partition Tolerance</h3>
+            <p style="margin-bottom: 1.5rem;">See how different consistency models handle network partitions. Click "Trigger Partition" to simulate a network split.</p>
+
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; justify-content: center;">
+                <button id="cap-trigger-partition" style="padding: 0.7rem 1.5rem; background: var(--accent-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    Trigger Partition
+                </button>
+                <button id="cap-heal-partition" style="padding: 0.7rem 1.5rem; background: var(--success-color); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;" disabled>
+                    Heal Partition
+                </button>
+                <button id="cap-reset" style="padding: 0.7rem 1.5rem; background: #2c3e50; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    Reset
+                </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; margin-bottom: 1.5rem;">
+                <!-- Sequential Consistency Panel -->
+                <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border-top: 4px solid #e74c3c;">
+                    <h4 style="text-align: center; color: #e74c3c; margin: 0 0 1rem 0;">Sequential Consistency</h4>
+                    <div id="seq-status" style="padding: 1rem; background: white; border-radius: 5px; margin-bottom: 1rem; text-align: center; font-weight: bold;">
+                        System Running
+                    </div>
+                    <div id="seq-operations" style="padding: 1rem; background: white; border-radius: 5px; font-size: 0.9rem;">
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                        <div style="color: #27ae60;">✓ Reads allowed</div>
+                    </div>
+                </div>
+
+                <!-- Causal Consistency Panel -->
+                <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border-top: 4px solid #f39c12;">
+                    <h4 style="text-align: center; color: #f39c12; margin: 0 0 1rem 0;">Causal Consistency</h4>
+                    <div id="causal-status" style="padding: 1rem; background: white; border-radius: 5px; margin-bottom: 1rem; text-align: center; font-weight: bold;">
+                        System Running
+                    </div>
+                    <div id="causal-operations" style="padding: 1rem; background: white; border-radius: 5px; font-size: 0.9rem;">
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                        <div style="color: #27ae60;">✓ Reads allowed</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="cap-network-viz" style="height: 300px; background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 1.5rem; position: relative;">
+                <svg width="100%" height="100%"></svg>
+            </div>
+
+            <div id="cap-explanation" style="padding: 1rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 5px;">
+                <strong>Status:</strong> <span id="cap-explain-text">Network is healthy. All nodes connected.</span>
+            </div>
+
+            <script>
+            (function() {
+                let partitioned = false;
+                const svg = document.querySelector('#cap-network-viz svg');
+                const width = svg.parentElement.clientWidth;
+                const height = 300;
+
+                const nodes = [
+                    { id: 'A', x: width * 0.25, y: height / 2, partition: 1 },
+                    { id: 'B', x: width * 0.5, y: height / 2, partition: 1 },
+                    { id: 'C', x: width * 0.75, y: height / 2, partition: 2 }
+                ];
+
+                function drawNetwork() {
+                    svg.innerHTML = '';
+
+                    // Draw connections
+                    if (!partitioned) {
+                        // All connected
+                        [[0, 1], [1, 2], [0, 2]].forEach(([i, j]) => {
+                            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            line.setAttribute('x1', nodes[i].x);
+                            line.setAttribute('y1', nodes[i].y);
+                            line.setAttribute('x2', nodes[j].x);
+                            line.setAttribute('y2', nodes[j].y);
+                            line.setAttribute('stroke', '#27ae60');
+                            line.setAttribute('stroke-width', '3');
+                            svg.appendChild(line);
+                        });
+                    } else {
+                        // Partition 1 connected
+                        const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line1.setAttribute('x1', nodes[0].x);
+                        line1.setAttribute('y1', nodes[0].y);
+                        line1.setAttribute('x2', nodes[1].x);
+                        line1.setAttribute('y2', nodes[1].y);
+                        line1.setAttribute('stroke', '#27ae60');
+                        line1.setAttribute('stroke-width', '3');
+                        svg.appendChild(line1);
+
+                        // Broken connections
+                        [[1, 2], [0, 2]].forEach(([i, j]) => {
+                            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                            line.setAttribute('x1', nodes[i].x);
+                            line.setAttribute('y1', nodes[i].y);
+                            line.setAttribute('x2', nodes[j].x);
+                            line.setAttribute('y2', nodes[j].y);
+                            line.setAttribute('stroke', '#e74c3c');
+                            line.setAttribute('stroke-width', '3');
+                            line.setAttribute('stroke-dasharray', '10,5');
+                            svg.appendChild(line);
+                        });
+
+                        // Partition labels
+                        const part1Text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        part1Text.setAttribute('x', nodes[0].x + 50);
+                        part1Text.setAttribute('y', 30);
+                        part1Text.setAttribute('fill', '#e74c3c');
+                        part1Text.setAttribute('font-weight', 'bold');
+                        part1Text.textContent = 'Partition 1';
+                        svg.appendChild(part1Text);
+
+                        const part2Text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        part2Text.setAttribute('x', nodes[2].x - 80);
+                        part2Text.setAttribute('y', 30);
+                        part2Text.setAttribute('fill', '#e74c3c');
+                        part2Text.setAttribute('font-weight', 'bold');
+                        part2Text.textContent = 'Partition 2';
+                        svg.appendChild(part2Text);
+                    }
+
+                    // Draw nodes
+                    nodes.forEach(node => {
+                        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        circle.setAttribute('cx', node.x);
+                        circle.setAttribute('cy', node.y);
+                        circle.setAttribute('r', 35);
+                        circle.setAttribute('fill', '#2c3e50');
+                        circle.setAttribute('stroke', partitioned ? (node.partition === 1 ? '#3498db' : '#f39c12') : '#27ae60');
+                        circle.setAttribute('stroke-width', '4');
+                        svg.appendChild(circle);
+
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', node.x);
+                        text.setAttribute('y', node.y + 7);
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('fill', 'white');
+                        text.setAttribute('font-weight', 'bold');
+                        text.setAttribute('font-size', '20');
+                        text.textContent = node.id;
+                        svg.appendChild(text);
+                    });
+                }
+
+                function triggerPartition() {
+                    partitioned = true;
+                    drawNetwork();
+
+                    // Sequential consistency - must stop writes
+                    document.getElementById('seq-status').innerHTML = '<span style="color: #e74c3c;">⚠ System Degraded</span>';
+                    document.getElementById('seq-operations').innerHTML = `
+                        <div style="color: #e74c3c; margin-bottom: 0.5rem;">✗ Writes blocked (cannot guarantee total order)</div>
+                        <div style="color: #f39c12;">⚠ Reads allowed (may be stale)</div>
+                    `;
+
+                    // Causal consistency - can continue
+                    document.getElementById('causal-status').innerHTML = '<span style="color: #27ae60;">✓ System Available</span>';
+                    document.getElementById('causal-operations').innerHTML = `
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed (tracked with vector clocks)</div>
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Reads allowed</div>
+                        <div style="color: #3498db; font-size: 0.85rem;">Conflicts detected on merge</div>
+                    `;
+
+                    document.getElementById('cap-explain-text').innerHTML = `
+                        <span style="color: #e74c3c; font-weight: bold;">Network partition!</span>
+                        Sequential consistency must stop writes to maintain total order.
+                        Causal consistency continues operating, tracking causality locally in each partition.
+                    `;
+
+                    document.getElementById('cap-trigger-partition').disabled = true;
+                    document.getElementById('cap-heal-partition').disabled = false;
+                }
+
+                function healPartition() {
+                    partitioned = false;
+                    drawNetwork();
+
+                    // Sequential consistency - back to normal
+                    document.getElementById('seq-status').innerHTML = 'System Running';
+                    document.getElementById('seq-operations').innerHTML = `
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                        <div style="color: #27ae60;">✓ Reads allowed</div>
+                    `;
+
+                    // Causal consistency - merge conflicts
+                    document.getElementById('causal-status').innerHTML = '<span style="color: #f39c12;">⚠ Merging Partitions</span>';
+                    document.getElementById('causal-operations').innerHTML = `
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ System available</div>
+                        <div style="color: #f39c12;">⚠ Detecting conflicts with vector clocks</div>
+                    `;
+
+                    document.getElementById('cap-explain-text').innerHTML = `
+                        <span style="color: #27ae60; font-weight: bold;">Partition healed!</span>
+                        Sequential consistency resumes normal operation.
+                        Causal consistency uses vector clocks to detect and resolve conflicts between partitions.
+                    `;
+
+                    document.getElementById('cap-trigger-partition').disabled = false;
+                    document.getElementById('cap-heal-partition').disabled = true;
+
+                    setTimeout(() => {
+                        document.getElementById('causal-status').innerHTML = 'System Running';
+                        document.getElementById('causal-operations').innerHTML = `
+                            <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                            <div style="color: #27ae60;">✓ Reads allowed</div>
+                        `;
+                    }, 3000);
+                }
+
+                function reset() {
+                    partitioned = false;
+                    drawNetwork();
+
+                    document.getElementById('seq-status').innerHTML = 'System Running';
+                    document.getElementById('seq-operations').innerHTML = `
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                        <div style="color: #27ae60;">✓ Reads allowed</div>
+                    `;
+
+                    document.getElementById('causal-status').innerHTML = 'System Running';
+                    document.getElementById('causal-operations').innerHTML = `
+                        <div style="color: #27ae60; margin-bottom: 0.5rem;">✓ Writes allowed</div>
+                        <div style="color: #27ae60;">✓ Reads allowed</div>
+                    `;
+
+                    document.getElementById('cap-explain-text').textContent = 'Network is healthy. All nodes connected.';
+                    document.getElementById('cap-trigger-partition').disabled = false;
+                    document.getElementById('cap-heal-partition').disabled = true;
+                }
+
+                document.getElementById('cap-trigger-partition').addEventListener('click', triggerPartition);
+                document.getElementById('cap-heal-partition').addEventListener('click', healPartition);
+                document.getElementById('cap-reset').addEventListener('click', reset);
+
+                drawNetwork();
+            })();
+            </script>
+        </div>
+
+        <section id="relationship-other-topics">
+            <h2>Relationship to Other Topics</h2>
+
+            <h3>Causal Consistency and Logical Clocks</h3>
+
+            <div class="callout-warning">
+                <h4>Lamport Clocks (covered in Lecture 16):</h4>
+                <ul>
+                    <li>Single scalar per process</li>
+                    <li>If A → B, then LamportClock(A) &lt; LamportClock(B)</li>
+                    <li>BUT: If LamportClock(A) &lt; LamportClock(B), cannot conclude A → B</li>
+                    <li><strong>Not sufficient for causal consistency!</strong></li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Vector Clocks:</h4>
+                <ul>
+                    <li>Vector of scalars (one per process)</li>
+                    <li>If A → B, then VectorClock(A) &lt; VectorClock(B)</li>
+                    <li>If VectorClock(A) &lt; VectorClock(B), then A → B</li>
+                    <li><strong>Sufficient for causal consistency!</strong></li>
+                </ul>
+            </div>
+
+            <h4>Why the difference?</h4>
+            <ul>
+                <li><strong>Lamport clocks</strong>: one-way implication (causality → smaller clock)</li>
+                <li><strong>Vector clocks</strong>: two-way implication (causality ↔ smaller clock)</li>
+            </ul>
+
+            <h3>Causal Consistency and File Synchronization</h3>
+
+            <p><strong>From Lecture 15</strong>: Vector Time Pairs</p>
+            <ul>
+                <li><strong>Modification time</strong>: "Which version do we have?"</li>
+                <li><strong>Sync time</strong>: "How much do we know?"</li>
+                <li>Used in systems like Unison, File Synchronization with Vector Time Pairs</li>
+            </ul>
+
+            <h4>How it works:</h4>
+            <ul>
+                <li>Each file has modification time (vector clock of last write)</li>
+                <li>Each device has sync time (vector clock of what it's seen)</li>
+                <li>Compare vector clocks to detect conflicts</li>
+                <li>If concurrent: manual resolution or merge</li>
+            </ul>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Lamport vs Vector Clocks</h3>
+            <p style="margin-bottom: 1.5rem;">Compare how Lamport and Vector clocks capture causality. Same events, different clock mechanisms.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-bottom: 2rem;">
+                <!-- Lamport Clocks Panel -->
+                <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border-top: 4px solid #f39c12;">
+                    <h4 style="text-align: center; color: #f39c12; margin: 0 0 1rem 0;">Lamport Clocks (Scalars)</h4>
+                    <div style="padding: 1rem; background: white; border-radius: 5px; margin-bottom: 1rem;">
+                        <div style="margin-bottom: 0.8rem;"><strong>P1:</strong> A=1, B=2</div>
+                        <div style="margin-bottom: 0.8rem;"><strong>P2:</strong> C=1, D=3 (recv from P1)</div>
+                        <div><strong>P3:</strong> E=1</div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(243, 156, 18, 0.1); border-radius: 5px; font-size: 0.9rem;">
+                        <strong>Problem:</strong> D(3) > E(1), but D ∥ E (concurrent)!<br>
+                        Cannot distinguish causality from concurrency.
+                    </div>
+                </div>
+
+                <!-- Vector Clocks Panel -->
+                <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border-top: 4px solid #27ae60;">
+                    <h4 style="text-align: center; color: #27ae60; margin: 0 0 1rem 0;">Vector Clocks (Vectors)</h4>
+                    <div style="padding: 1rem; background: white; border-radius: 5px; margin-bottom: 1rem;">
+                        <div style="margin-bottom: 0.8rem;"><strong>P1:</strong> A=[1,0,0], B=[2,0,0]</div>
+                        <div style="margin-bottom: 0.8rem;"><strong>P2:</strong> C=[0,1,0], D=[2,2,0]</div>
+                        <div><strong>P3:</strong> E=[0,0,1]</div>
+                    </div>
+                    <div style="padding: 1rem; background: rgba(39, 174, 96, 0.1); border-radius: 5px; font-size: 0.9rem;">
+                        <strong>Solution:</strong> D=[2,2,0] vs E=[0,0,1]: mixed components!<br>
+                        Correctly identifies D ∥ E (concurrent).
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 1.5rem; background: var(--code-bg); border-radius: 8px; margin-bottom: 2rem;">
+                <h4 style="margin-top: 0;">Key Differences:</h4>
+                <div style="display: grid; gap: 1rem;">
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: #f39c12;">Lamport Clocks:</strong>
+                        <ul style="margin: 0.5rem 0 0 1.5rem;">
+                            <li>If A → B, then LC(A) < LC(B) ✓</li>
+                            <li>If LC(A) < LC(B), then... maybe A → B? ✗ (Ambiguous!)</li>
+                            <li>Cannot detect concurrency</li>
+                            <li>Space: O(1) per event</li>
+                        </ul>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: #27ae60;">Vector Clocks:</strong>
+                        <ul style="margin: 0.5rem 0 0 1.5rem;">
+                            <li>If A → B, then VC(A) < VC(B) ✓</li>
+                            <li>If VC(A) < VC(B), then A → B ✓ (Definitive!)</li>
+                            <li>Can detect concurrency: A ∥ B if mixed components</li>
+                            <li>Space: O(N) per event (N = number of processes)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 1.5rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 5px;">
+                <h4 style="margin-top: 0;">Example Scenario:</h4>
+                <div style="font-family: monospace; background: white; padding: 1rem; border-radius: 5px; margin-bottom: 1rem;">
+                    P1: A (write X=1), B (write Y=1)<br>
+                    P2: C (write Z=1), receives A, D (read X)<br>
+                    P3: E (write W=1)
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <strong>Lamport:</strong>
+                        <div style="background: white; padding: 0.8rem; border-radius: 5px; margin-top: 0.5rem; font-size: 0.9rem;">
+                            A=1, B=2, C=1, D=3, E=1<br>
+                            <span style="color: #f39c12;">⚠ Cannot tell if E ∥ B</span>
+                        </div>
+                    </div>
+                    <div>
+                        <strong>Vector:</strong>
+                        <div style="background: white; padding: 0.8rem; border-radius: 5px; margin-top: 0.5rem; font-size: 0.9rem;">
+                            E=[0,0,1], B=[2,0,0]<br>
+                            <span style="color: #27ae60;">✓ Clearly shows E ∥ B</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section id="exam-tips">
+            <h2>Exam Tips</h2>
+
+            <h3>What Professors Look For</h3>
+
+            <ol>
+                <li>
+                    <strong>Understanding happens-before</strong>
+                    <ul>
+                        <li>Can you identify causal relationships?</li>
+                        <li>Do you understand program order and message passing?</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Vector clock manipulation</strong>
+                    <ul>
+                        <li>Can you update vector clocks correctly?</li>
+                        <li>Can you compare vector clocks?</li>
+                        <li>Can you detect concurrency?</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Causal vs Sequential</strong>
+                    <ul>
+                        <li>Can you explain the difference?</li>
+                        <li>Can you give examples where they differ?</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Concurrent operations</strong>
+                    <ul>
+                        <li>Do you understand that concurrent ops can be reordered?</li>
+                        <li>Can you identify when operations are concurrent?</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Common Exam Question Types</h3>
+
+            <ol>
+                <li><strong>Given operations, determine if causally consistent</strong>
+                    <ul>
+                        <li>Draw happens-before diagram</li>
+                        <li>Check if observations respect causality</li>
+                    </ul>
+                </li>
+                <li><strong>Vector clock evolution</strong>
+                    <ul>
+                        <li>Trace vector clock values through operations</li>
+                        <li>Determine causal relationships</li>
+                    </ul>
+                </li>
+                <li><strong>Sequential vs Causal comparison</strong>
+                    <ul>
+                        <li>Same scenario, different consistency models</li>
+                        <li>Identify which outcomes are possible under each</li>
+                    </ul>
+                </li>
+                <li><strong>Detect conflicts</strong>
+                    <ul>
+                        <li>Use vector clocks to find concurrent operations</li>
+                        <li>Explain why conflicts occur</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Time-Saving Tips</h3>
+
+            <ol>
+                <li><strong>Always draw happens-before diagrams</strong> for complex scenarios</li>
+                <li><strong>Use tables</strong> to track vector clock evolution</li>
+                <li><strong>Check concurrent operations</strong> systematically (all pairs)</li>
+                <li><strong>Remember</strong>: Concurrent operations = flexibility in ordering</li>
+            </ol>
+
+            <h3>Common Mistakes to Avoid</h3>
+
+            <ol>
+                <li>Confusing Lamport clocks with vector clocks</li>
+                <li>Thinking causal consistency requires total ordering</li>
+                <li>Missing transitive causal relationships</li>
+                <li>Forgetting that concurrent operations can differ</li>
+                <li>Incorrectly updating vector clocks (forgetting to increment own)</li>
+            </ol>
+        </section>
+
+        <section id="practice-exam-questions">
+            <h2>Practice Exam Questions</h2>
+
+            <h3>Question 1: Multiple Choice</h3>
+
+            <p>A system with causal consistency has three processes. Which is TRUE?</p>
+
+            <ol type="A">
+                <li>All processes must see all writes in the same order</li>
+                <li>If write W1 happens-before W2, all processes see W1 before W2</li>
+                <li>Concurrent writes must be seen in real-time order</li>
+                <li>Vector clocks are not needed for implementation</li>
+            </ol>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>Answer: B</strong></p>
+                    <ul>
+                        <li>A is false (only for causally related writes, not all writes)</li>
+                        <li>B is TRUE (definition of causal consistency)</li>
+                        <li>C is false (no "real-time order" requirement, and concurrent writes can vary)</li>
+                        <li>D is false (vector clocks are the standard implementation technique)</li>
+                    </ul>
+                </div>
+            </details>
+
+            <h3>Question 2: Vector Clock Trace</h3>
+
+            <p>Complete the vector clock evolution:</p>
+
+            <pre><code>Process P1:
+  Event A: [?, ?, ?]
+  Send msg to P2: [?, ?, ?]
+
+Process P2:
+  Event B: [?, ?, ?]
+  Receive msg from P1: [?, ?, ?]
+  Send msg to P3: [?, ?, ?]
+
+Process P3:
+  Event C: [?, ?, ?]
+  Receive msg from P2: [?, ?, ?]</code></pre>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>Answer:</strong></p>
+                    <pre><code>Process P1:
+  Event A: [1, 0, 0]
+  Send msg to P2: [2, 0, 0]
+
+Process P2:
+  Event B: [0, 1, 0]
+  Receive msg from P1: [2, 2, 0]  (max([0,1,0], [2,0,0])=[2,1,0], then inc P2)
+  Send msg to P3: [2, 3, 0]
+
+Process P3:
+  Event C: [0, 0, 1]
+  Receive msg from P2: [2, 3, 2]  (max([0,0,1], [2,3,0])=[2,3,1], then inc P3)</code></pre>
+                </div>
+            </details>
+
+            <h3>Question 3: Sequential vs Causal</h3>
+
+            <pre><code>M1: X = 1, Y = 1
+M2: X = 2, Y = 2
+M3: reads Y = 1, then X = 2
+M4: reads Y = 2, then X = 1</code></pre>
+
+            <p>Possible with sequential consistency? Causal consistency?</p>
+
+            <details>
+                <summary>Click for answer</summary>
+                <div class="callout-success">
+                    <p><strong>Sequential consistency: NO</strong></p>
+                    <p>Need a total order. Possibilities:</p>
+                    <ul>
+                        <li>If X=1 before X=2: both must see X=2 last (contradicts M4 seeing X=1)</li>
+                        <li>If X=2 before X=1: both must see X=1 last (contradicts M3 seeing X=2)</li>
+                        <li>Cannot create a valid total order</li>
+                    </ul>
+
+                    <p><strong>Causal consistency: MAYBE</strong></p>
+                    <p>Key question: Are the writes causally related?</p>
+                    <p>If M1 and M2 are independent (no communication):</p>
+                    <ul>
+                        <li>X=1 ∥ X=2 and Y=1 ∥ Y=2</li>
+                        <li>Concurrent writes can be seen in different orders</li>
+                    </ul>
+                    <p>Check program orders:</p>
+                    <ul>
+                        <li>M1: X=1 → Y=1 (must see X=1 before Y=1)</li>
+                        <li>M2: X=2 → Y=2 (must see X=2 before Y=2)</li>
+                    </ul>
+                    <p>M3 reads Y=1 then X=2: Saw Y=1, so must have seen X=1 (by causality on M1). Also saw X=2. If these are concurrent: OK</p>
+                    <p>M4 reads Y=2 then X=1: Saw Y=2, so must have seen X=2 (by causality on M2). Also saw X=1. If these are concurrent: OK</p>
+                    <p><strong>YES, possible with causal consistency if X=1 and X=2 are concurrent!</strong></p>
+                </div>
+            </details>
+        </section>
+
+        <section id="final-checklist">
+            <h2>Final Checklist</h2>
+
+            <p>Before the exam, make sure you can:</p>
+
+            <ul>
+                <li><input type="checkbox"> Define causal consistency clearly</li>
+                <li><input type="checkbox"> Explain the happens-before relationship (→)</li>
+                <li><input type="checkbox"> Identify causal relationships in a given scenario</li>
+                <li><input type="checkbox"> Identify concurrent operations</li>
+                <li><input type="checkbox"> Differentiate causal from sequential and eventual consistency</li>
+                <li><input type="checkbox"> Initialize and update vector clocks correctly</li>
+                <li><input type="checkbox"> Compare vector clocks (equality, causality, concurrency)</li>
+                <li><input type="checkbox"> Use vector clocks to detect conflicts</li>
+                <li><input type="checkbox"> Trace vector clock evolution through operations</li>
+                <li><input type="checkbox"> Explain why causal consistency allows partition tolerance</li>
+                <li><input type="checkbox"> Give real-world examples and use cases</li>
+                <li><input type="checkbox"> Work through complex multi-process scenarios</li>
+            </ul>
+        </section>
+
+        <section id="additional-resources">
+            <h2>Additional Resources</h2>
+
+            <h3>From Lectures:</h3>
+            <ul>
+                <li>Lecture 13: Introduction to consistency models</li>
+                <li>Lecture 14: Causal consistency and vector timestamps</li>
+                <li>Lecture 15: File Synchronization with Vector Time Pairs</li>
+                <li>Section 7.2.1: Consistent Ordering of Operations (textbook)</li>
+                <li>Section 5.2: Logical Clocks (textbook)</li>
+            </ul>
+
+            <h3>Classic Papers:</h3>
+            <ul>
+                <li>"Time, Clocks, and the Ordering of Events in a Distributed System" by Leslie Lamport (1978)
+                    <ul><li>Introduces logical clocks and happens-before</li></ul>
+                </li>
+                <li>"File Synchronization with Vector Time Pairs" (MIT-CSAIL-TR 2005)
+                    <ul><li>Practical application of vector clocks</li></ul>
+                </li>
+            </ul>
+
+            <h3>Modern Systems:</h3>
+            <ul>
+                <li>COPS: "Don't Settle for Eventual: Scalable Causal Consistency for Wide-Area Storage with COPS" (SOSP 2011)</li>
+                <li>Eiger: "Stronger Semantics for Low-Latency Geo-Replicated Storage" (NSDI 2013)</li>
+            </ul>
+
+            <h3>Practice:</h3>
+            <ul>
+                <li>Work through iClicker questions from Lectures 13-14</li>
+                <li>Create your own scenarios with 3-4 processes</li>
+                <li>Practice vector clock manipulation</li>
+            </ul>
+        </section>
+
+        <section id="summary">
+            <h2>Summary: The Big Picture</h2>
+
+            <div class="callout-success">
+                <h3>Causal consistency is the sweet spot between:</h3>
+
+                <h4>Too Strong (Sequential):</h4>
+                <ul>
+                    <li>Requires total ordering of all operations</li>
+                    <li>Expensive coordination</li>
+                    <li>Can't tolerate partitions</li>
+                </ul>
+
+                <h4>Too Weak (Eventual):</h4>
+                <ul>
+                    <li>No ordering guarantees</li>
+                    <li>Can see reply before original</li>
+                    <li>Confusing for users</li>
+                </ul>
+
+                <h4>Just Right (Causal):</h4>
+                <ul>
+                    <li>Preserves cause-effect relationships</li>
+                    <li>Allows concurrent operations to be flexible</li>
+                    <li>Good performance with meaningful guarantees</li>
+                    <li>Works during network partitions</li>
+                </ul>
+
+                <p><strong>Remember</strong>: Causal consistency says "preserve causality, ignore the rest!"</p>
+            </div>
+        </section>
+
+        <div style="background: white; border: 2px solid var(--secondary-color); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: The Big Picture Summary</h3>
+            <p style="margin-bottom: 1.5rem;">Causal consistency is the "Goldilocks zone" - strong enough for meaningful guarantees, weak enough for good performance.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; margin-bottom: 2rem;">
+                <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, rgba(231, 76, 60, 0.1), rgba(231, 76, 60, 0.05)); border-radius: 8px; border-top: 4px solid #e74c3c;">
+                    <h4 style="color: #e74c3c; margin: 0 0 1rem 0;">Too Strong</h4>
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🔒</div>
+                    <div style="font-weight: bold; margin-bottom: 0.5rem;">Sequential Consistency</div>
+                    <div style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                        • Total ordering required<br>
+                        • Expensive coordination<br>
+                        • Can't tolerate partitions<br>
+                        • Blocks during failures
+                    </div>
+                </div>
+
+                <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, rgba(243, 156, 18, 0.1), rgba(243, 156, 18, 0.05)); border-radius: 8px; border-top: 4px solid #f39c12; box-shadow: 0 5px 20px rgba(243, 156, 18, 0.3);">
+                    <h4 style="color: #f39c12; margin: 0 0 1rem 0;">Just Right!</h4>
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">⭐</div>
+                    <div style="font-weight: bold; margin-bottom: 0.5rem;">Causal Consistency</div>
+                    <div style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                        • Preserves cause-effect<br>
+                        • Flexible concurrent ops<br>
+                        • Good performance<br>
+                        • Works during partitions
+                    </div>
+                </div>
+
+                <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, rgba(39, 174, 96, 0.1), rgba(39, 174, 96, 0.05)); border-radius: 8px; border-top: 4px solid #27ae60;">
+                    <h4 style="color: #27ae60; margin: 0 0 1rem 0;">Too Weak</h4>
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🌊</div>
+                    <div style="font-weight: bold; margin-bottom: 0.5rem;">Eventual Consistency</div>
+                    <div style="font-size: 0.9rem; color: #666; line-height: 1.6;">
+                        • No ordering guarantees<br>
+                        • Can see reply before post<br>
+                        • Confusing for users<br>
+                        • Eventually converges
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 2rem; background: var(--code-bg); border-radius: 8px; margin-bottom: 2rem;">
+                <h4 style="margin-top: 0; text-align: center; color: var(--primary-color);">Decision Tree: Which Model Should I Use?</h4>
+                <div style="display: grid; gap: 1rem; max-width: 600px; margin: 0 auto;">
+                    <div style="padding: 1rem; background: white; border-left: 4px solid #e74c3c; border-radius: 5px;">
+                        <strong>Need absolute correctness?</strong> (Banking, financial trading)<br>
+                        → Use <span style="color: #e74c3c; font-weight: bold;">Sequential Consistency</span>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-left: 4px solid #f39c12; border-radius: 5px;">
+                        <strong>Need cause-effect relationships?</strong> (Social media, collaboration)<br>
+                        → Use <span style="color: #f39c12; font-weight: bold;">Causal Consistency</span>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-left: 4px solid #27ae60; border-radius: 5px;">
+                        <strong>Need maximum performance?</strong> (DNS, CDN, caching)<br>
+                        → Use <span style="color: #27ae60; font-weight: bold;">Eventual Consistency</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 2rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid var(--secondary-color); border-radius: 8px;">
+                <h4 style="margin-top: 0;">Key Takeaways:</h4>
+                <div style="display: grid; gap: 1rem;">
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: var(--secondary-color);">1. Happens-Before (→):</strong> The foundation
+                        <div style="margin-top: 0.5rem; font-size: 0.95rem;">
+                            Program order + Message passing + Transitivity = Causal relationships
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: var(--secondary-color);">2. Vector Clocks:</strong> The implementation
+                        <div style="margin-top: 0.5rem; font-size: 0.95rem;">
+                            MAX all components when receiving + ADD 1 to own = Track causality
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: var(--secondary-color);">3. Concurrent Operations:</strong> The flexibility
+                        <div style="margin-top: 0.5rem; font-size: 0.95rem;">
+                            If A ∥ B (concurrent), different machines can see them in different orders
+                        </div>
+                    </div>
+                    <div style="padding: 1rem; background: white; border-radius: 5px;">
+                        <strong style="color: var(--secondary-color);">4. CAP Theorem:</strong> The advantage
+                        <div style="margin-top: 0.5rem; font-size: 0.95rem;">
+                            Causal consistency is AP (Available + Partition-tolerant) unlike sequential (CP)
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 2rem; padding: 1.5rem; background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); color: white; border-radius: 8px; text-align: center;">
+                <h4 style="margin: 0 0 1rem 0;">Remember:</h4>
+                <div style="font-size: 1.2rem; font-weight: bold;">
+                    "Preserve causality, ignore the rest!"
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.95rem; opacity: 0.9;">
+                    Causal consistency tracks what matters (cause-before-effect) without the performance cost of total ordering.
+                </div>
+            </div>
+        </div>
+
+        <section id="good-luck">
+            <h2>Good Luck!</h2>
+
+            <p>The key to mastering causal consistency is understanding the happens-before relationship. Once you get that, everything else follows naturally:</p>
+
+            <ol>
+                <li><strong>Identify causality</strong> (happens-before arrows)</li>
+                <li><strong>Identify concurrency</strong> (no arrows between them)</li>
+                <li><strong>Remember</strong>: Causal must be ordered, concurrent can vary</li>
+            </ol>
+
+            <p>When working with vector clocks:</p>
+            <ul>
+                <li><strong>MAX</strong> all components when receiving</li>
+                <li><strong>ADD</strong> 1 to your own component</li>
+                <li><strong>COMPARE</strong> to detect causality vs concurrency</li>
+            </ul>
+
+            <div class="callout-info">
+                <p>Draw diagrams! Vector clocks can be tricky, but a table tracking their evolution makes everything clear.</p>
+            </div>
+
+            <div class="callout-success">
+                <p>Most importantly: Understand the <em>why</em> - causal consistency gives us meaningful guarantees (cause-before-effect) without the performance cost of total ordering. It's all about tracking what matters (causality) and ignoring what doesn't (unrelated concurrent operations).</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

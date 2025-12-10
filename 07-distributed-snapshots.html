@@ -1,0 +1,3118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Snapshots | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Distributed Snapshots</h1>
+            <p>CS 416 Study Guide - Topic 07</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="table-of-contents">
+            <h2>Table of Contents</h2>
+            <ol>
+                <li><a href="#what-is-a-distributed-snapshot">What is a Distributed Snapshot?</a></li>
+                <li><a href="#why-we-need-distributed-snapshots">Why We Need Distributed Snapshots</a></li>
+                <li><a href="#the-challenge-no-global-time">The Challenge: No Global Time</a></li>
+                <li><a href="#consistent-cuts-and-global-states">Consistent Cuts and Global States</a></li>
+                <li><a href="#the-chandy-lamport-algorithm">The Chandy-Lamport Algorithm</a></li>
+                <li><a href="#detailed-examples-and-traces">Detailed Examples and Traces</a></li>
+                <li><a href="#applications-and-use-cases">Applications and Use Cases</a></li>
+                <li><a href="#exam-tips-and-memory-aids">Exam Tips and Memory Aids</a></li>
+            </ol>
+        </section>
+
+        <section id="what-is-a-distributed-snapshot">
+            <h2>What is a Distributed Snapshot?</h2>
+
+            <h3>The Group Photo Analogy</h3>
+            <p>Imagine trying to take a group photo of your friends who are scattered across a large park, constantly moving and passing frisbees to each other. You can't yell "freeze!" loud enough for everyone to hear at the exact same time. Some people will stop earlier, some later. And during that time, frisbees are still flying through the air.</p>
+
+            <p>How do you capture a meaningful photo where:</p>
+            <ul>
+                <li>Everyone is in the picture</li>
+                <li>No frisbee appears twice or disappears</li>
+                <li>The photo represents a valid state that could have actually occurred</li>
+            </ul>
+
+            <p>This is exactly the challenge of taking a <strong>distributed snapshot</strong>!</p>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Group Photo Analogy</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button id="startAnimation" style="background: var(--success-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Start Animation</button>
+                        <button id="resetAnimation" style="background: var(--accent-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Reset</button>
+                    </div>
+                    <canvas id="parkCanvas" width="800" height="500" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="parkTimeline" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-family: monospace; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+            <script>
+            (function() {
+                const canvas = document.getElementById('parkCanvas');
+                const ctx = canvas.getContext('2d');
+                const timeline = document.getElementById('parkTimeline');
+
+                let animationId = null;
+                let time = 0;
+                let people = [];
+                let frisbees = [];
+
+                class Person {
+                    constructor(x, y, name, freezeTime) {
+                        this.x = x;
+                        this.y = y;
+                        this.name = name;
+                        this.freezeTime = freezeTime;
+                        this.frozen = false;
+                        this.color = '#3498db';
+                    }
+
+                    draw() {
+                        ctx.save();
+                        ctx.fillStyle = this.frozen ? '#27ae60' : this.color;
+                        ctx.strokeStyle = this.frozen ? '#1e8449' : '#2980b9';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, 25, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        if (this.frozen) {
+                            ctx.fillStyle = 'white';
+                            ctx.font = 'bold 20px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('📸', this.x, this.y);
+                        }
+
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(this.name, this.x, this.y + 40);
+                        ctx.fillText(`t=${this.freezeTime}`, this.x, this.y + 55);
+                        ctx.restore();
+                    }
+
+                    update(currentTime) {
+                        if (!this.frozen && currentTime >= this.freezeTime) {
+                            this.frozen = true;
+                        }
+                    }
+                }
+
+                class Frisbee {
+                    constructor(fromPerson, toPerson, sendTime) {
+                        this.from = fromPerson;
+                        this.to = toPerson;
+                        this.sendTime = sendTime;
+                        this.x = fromPerson.x;
+                        this.y = fromPerson.y;
+                        this.progress = 0;
+                        this.received = false;
+                        this.color = '#e74c3c';
+                    }
+
+                    draw() {
+                        if (this.received) return;
+
+                        ctx.save();
+                        ctx.fillStyle = this.color;
+                        ctx.strokeStyle = '#c0392b';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+
+                    update(currentTime) {
+                        if (this.received) return;
+
+                        if (currentTime >= this.sendTime) {
+                            this.progress += 0.02;
+                            if (this.progress >= 1) {
+                                this.progress = 1;
+                                this.received = true;
+                            }
+                            this.x = this.from.x + (this.to.x - this.from.x) * this.progress;
+                            this.y = this.from.y + (this.to.y - this.from.y) * this.progress;
+                        }
+                    }
+                }
+
+                function init() {
+                    people = [
+                        new Person(150, 150, 'Alice', 2),
+                        new Person(650, 150, 'Bob', 4),
+                        new Person(400, 350, 'Carol', 3),
+                        new Person(150, 400, 'Dave', 5)
+                    ];
+
+                    frisbees = [
+                        new Frisbee(people[0], people[1], 1),
+                        new Frisbee(people[1], people[2], 2),
+                        new Frisbee(people[2], people[3], 3.5)
+                    ];
+
+                    time = 0;
+                }
+
+                function draw() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = 'rgba(39, 174, 96, 0.1)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    for (let frisbee of frisbees) {
+                        ctx.save();
+                        ctx.strokeStyle = 'rgba(231, 76, 60, 0.3)';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.moveTo(frisbee.from.x, frisbee.from.y);
+                        ctx.lineTo(frisbee.to.x, frisbee.to.y);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+
+                    frisbees.forEach(f => f.draw());
+                    people.forEach(p => p.draw());
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.fillText(`Time: ${time.toFixed(1)}s`, 20, 30);
+
+                    updateTimeline();
+                }
+
+                function updateTimeline() {
+                    const inFlightFrisbees = frisbees.filter(f => !f.received && time >= f.sendTime);
+                    const frozenPeople = people.filter(p => p.frozen);
+
+                    let html = `<strong>Current State (t=${time.toFixed(1)})</strong><br>`;
+                    html += `Frozen: ${frozenPeople.map(p => p.name).join(', ') || 'None'}<br>`;
+                    html += `Frisbees in flight: ${inFlightFrisbees.length}<br>`;
+
+                    if (frozenPeople.length === people.length) {
+                        const accountedFrisbees = frisbees.filter(f => f.received || (time >= f.sendTime && !f.received));
+                        html += `<br><strong style="color: var(--success-color);">✓ Snapshot Complete!</strong><br>`;
+                        html += `All ${people.length} people frozen, ${inFlightFrisbees.length} frisbees accounted for in-flight`;
+                    }
+
+                    timeline.innerHTML = html;
+                }
+
+                function animate() {
+                    time += 0.05;
+
+                    people.forEach(p => p.update(time));
+                    frisbees.forEach(f => f.update(time));
+
+                    draw();
+
+                    if (time < 6) {
+                        animationId = requestAnimationFrame(animate);
+                    }
+                }
+
+                document.getElementById('startAnimation').addEventListener('click', () => {
+                    if (animationId) cancelAnimationFrame(animationId);
+                    init();
+                    draw();
+                    animate();
+                });
+
+                document.getElementById('resetAnimation').addEventListener('click', () => {
+                    if (animationId) cancelAnimationFrame(animationId);
+                    init();
+                    draw();
+                });
+
+                init();
+                draw();
+            })();
+            </script>
+
+            <h3>Formal Definition</h3>
+            <p>A distributed snapshot is a recorded state of a distributed system that captures:</p>
+            <ol>
+                <li><strong>Local state</strong> of each process (variables, execution point)</li>
+                <li><strong>Channel state</strong> (messages in transit between processes)</li>
+            </ol>
+
+            <p>The snapshot should represent a <strong>consistent global state</strong> - a state that could have actually occurred during the system's execution, even if these individual states weren't recorded at the same physical time.</p>
+
+            <div class="callout-info">
+                <strong>Key Insight:</strong> We don't need to stop the system. We don't need perfect synchronization. We just need a way to record states that are "consistent" with each other.
+            </div>
+        </section>
+
+        <section id="why-we-need-distributed-snapshots">
+            <h2>Why We Need Distributed Snapshots</h2>
+
+            <p>Distributed snapshots are like taking a checkpoint of your entire distributed system. They're incredibly useful for:</p>
+
+            <h3>1. Distributed Garbage Collection</h3>
+            <p><strong>Problem:</strong> In a distributed system with objects and references scattered across machines, how do you know what's garbage?</p>
+
+            <p><strong>Example:</strong> Think of a distributed key-value store where:</p>
+            <ul>
+                <li>Keys are like pointers</li>
+                <li>Values are like data objects</li>
+                <li>Keys and values are spread across multiple servers</li>
+            </ul>
+
+            <p><strong>Question:</strong> Which values can be safely deleted (no key points to them anymore)?</p>
+            <p><strong>Solution:</strong> Take a snapshot to see the entire "reference graph" at once. Any value with no incoming references is garbage.</p>
+
+            <h3>2. Distributed Deadlock Detection</h3>
+            <p><strong>Problem:</strong> Multiple processes waiting for resources held by each other.</p>
+
+            <p><strong>Example:</strong></p>
+            <ul>
+                <li>Process A holds resource X, waits for resource Y</li>
+                <li>Process B holds resource Y, waits for resource Z</li>
+                <li>Process C holds resource Z, waits for resource X</li>
+                <li>DEADLOCK! (cycle in the "waits-for" graph)</li>
+            </ul>
+
+            <p><strong>Solution:</strong> Take a snapshot to capture the entire waits-for graph, then check for cycles.</p>
+            <p><strong>Why snapshots?</strong> The deadlock might not exist at any single instant, but it exists in a consistent global state.</p>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Deadlock Detection</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button id="takeSnapshot" style="background: var(--secondary-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Take Snapshot</button>
+                        <button id="detectCycle" style="background: var(--warning-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Detect Deadlock</button>
+                        <button id="resetDeadlock" style="background: var(--accent-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Reset</button>
+                    </div>
+                    <canvas id="deadlockCanvas" width="700" height="500" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="deadlockStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-family: monospace; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+            <script>
+            (function() {
+                const canvas = document.getElementById('deadlockCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('deadlockStatus');
+
+                let snapshotTaken = false;
+                let cycleDetected = false;
+
+                const processes = [
+                    { id: 'P1', x: 350, y: 100, waitsFor: 'P2', resource: 'R1', waiting: 'R2' },
+                    { id: 'P2', x: 550, y: 250, waitsFor: 'P3', resource: 'R2', waiting: 'R3' },
+                    { id: 'P3', x: 350, y: 400, waitsFor: 'P4', resource: 'R3', waiting: 'R4' },
+                    { id: 'P4', x: 150, y: 250, waitsFor: 'P1', resource: 'R4', waiting: 'R1' }
+                ];
+
+                function drawProcess(proc, highlight = false) {
+                    ctx.save();
+
+                    const color = snapshotTaken ? '#e74c3c' : (highlight ? '#f39c12' : '#95a5a6');
+                    const radius = 40;
+
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(proc.x, proc.y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(proc.id, proc.x, proc.y - 5);
+
+                    ctx.font = '11px Arial';
+                    ctx.fillText(`Has: ${proc.resource}`, proc.x, proc.y + 10);
+                    ctx.fillText(`Waits: ${proc.waiting}`, proc.x, proc.y + 22);
+
+                    ctx.restore();
+                }
+
+                function drawArrow(from, to, highlight = false) {
+                    const fromProc = processes.find(p => p.id === from);
+                    const toProc = processes.find(p => p.id === to);
+
+                    if (!fromProc || !toProc) return;
+
+                    const dx = toProc.x - fromProc.x;
+                    const dy = toProc.y - fromProc.y;
+                    const angle = Math.atan2(dy, dx);
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    const startX = fromProc.x + Math.cos(angle) * 45;
+                    const startY = fromProc.y + Math.sin(angle) * 45;
+                    const endX = toProc.x - Math.cos(angle) * 45;
+                    const endY = toProc.y - Math.sin(angle) * 45;
+
+                    ctx.save();
+                    ctx.strokeStyle = highlight ? '#e74c3c' : '#3498db';
+                    ctx.fillStyle = highlight ? '#e74c3c' : '#3498db';
+                    ctx.lineWidth = highlight ? 4 : 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+
+                    const headlen = 15;
+                    ctx.beginPath();
+                    ctx.moveTo(endX, endY);
+                    ctx.lineTo(endX - headlen * Math.cos(angle - Math.PI / 6), endY - headlen * Math.sin(angle - Math.PI / 6));
+                    ctx.lineTo(endX - headlen * Math.cos(angle + Math.PI / 6), endY - headlen * Math.sin(angle + Math.PI / 6));
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+
+                function draw() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Waits-For Graph', 20, 30);
+
+                    for (let proc of processes) {
+                        drawArrow(proc.id, proc.waitsFor, cycleDetected);
+                    }
+
+                    for (let proc of processes) {
+                        drawProcess(proc, cycleDetected);
+                    }
+
+                    updateStatus();
+                }
+
+                function updateStatus() {
+                    let html = '';
+
+                    if (!snapshotTaken) {
+                        html = '<strong>System Running</strong><br>';
+                        html += 'Processes are waiting for resources in a circular dependency.<br>';
+                        html += 'Click "Take Snapshot" to capture the waits-for graph.';
+                    } else if (!cycleDetected) {
+                        html = '<strong style="color: var(--secondary-color);">Snapshot Taken</strong><br>';
+                        html += 'Waits-for graph captured:<br>';
+                        processes.forEach(p => {
+                            html += `${p.id} → ${p.waitsFor} (${p.id} holds ${p.resource}, waits for ${p.waiting})<br>`;
+                        });
+                        html += '<br>Click "Detect Deadlock" to analyze the graph.';
+                    } else {
+                        html = '<strong style="color: var(--accent-color);">⚠️ DEADLOCK DETECTED!</strong><br>';
+                        html += 'Cycle found: P1 → P2 → P3 → P4 → P1<br>';
+                        html += 'All processes are waiting in a circular dependency.<br>';
+                        html += '<br><em>This is a stable predicate - once detected, it persists!</em>';
+                    }
+
+                    status.innerHTML = html;
+                }
+
+                document.getElementById('takeSnapshot').addEventListener('click', () => {
+                    snapshotTaken = true;
+                    cycleDetected = false;
+                    draw();
+                });
+
+                document.getElementById('detectCycle').addEventListener('click', () => {
+                    if (snapshotTaken) {
+                        cycleDetected = true;
+                        draw();
+                    }
+                });
+
+                document.getElementById('resetDeadlock').addEventListener('click', () => {
+                    snapshotTaken = false;
+                    cycleDetected = false;
+                    draw();
+                });
+
+                draw();
+            })();
+            </script>
+
+            <h3>3. Distributed Debugging</h3>
+            <p><strong>Problem:</strong> You have an invariant that should hold across the system.</p>
+
+            <p><strong>Example:</strong> In a distributed banking system:</p>
+            <ul>
+                <li>Invariant: Total money in system = $1,000,000</li>
+                <li>Process A has account balances totaling $400,000</li>
+                <li>Process B has account balances totaling $600,000</li>
+                <li>But money transfers are happening constantly!</li>
+            </ul>
+
+            <p><strong>Challenge:</strong> How do you check if the invariant holds?</p>
+            <p><strong>Solution:</strong> Take a snapshot to see all account balances in a consistent state (accounting for transfers in progress).</p>
+
+            <h3>4. Distributed Checkpointing</h3>
+            <p><strong>Problem:</strong> In a long-running distributed computation, you want to save progress so you can recover if something crashes.</p>
+
+            <p><strong>Example:</strong></p>
+            <ul>
+                <li>Simulating weather for next week</li>
+                <li>100 processes running for 10 hours</li>
+                <li>One process crashes at hour 9</li>
+                <li>Without checkpoints: restart entire computation from hour 0</li>
+                <li>With snapshots: restart from last checkpoint at hour 8</li>
+            </ul>
+
+            <p><strong>Solution:</strong> Periodically take snapshots to checkpoint the entire system state.</p>
+
+            <h3>5. Distributed Termination Detection</h3>
+            <p><strong>Problem:</strong> How do you know when a distributed computation has finished?</p>
+
+            <p><strong>Example:</strong></p>
+            <ul>
+                <li>Distributed web crawler</li>
+                <li>Many processes crawling pages, finding new links</li>
+                <li>How do you know when all pages have been visited and no more work exists?</li>
+            </ul>
+
+            <p><strong>Challenge:</strong> Some processes might be idle, but messages with new work might be in transit.</p>
+            <p><strong>Solution:</strong> Take a snapshot to see if all processes are idle AND no messages are in transit.</p>
+
+            <div class="callout-success">
+                <strong>Memory Aid: "GDD-CT"</strong>
+                <ul>
+                    <li><strong>G</strong>arbage collection</li>
+                    <li><strong>D</strong>eadlock detection</li>
+                    <li><strong>D</strong>ebugging</li>
+                    <li><strong>C</strong>heckpointing</li>
+                    <li><strong>T</strong>ermination detection</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="the-challenge-no-global-time">
+            <h2>The Challenge: No Global Time</h2>
+
+            <h3>Why We Can't Just "Stop the World"</h3>
+            <p>In a single-machine program, taking a snapshot is trivial:</p>
+            <pre><code>// Just pause execution and record everything
+pause_all_threads();
+snapshot = save_all_memory();
+resume_all_threads();</code></pre>
+
+            <p><strong>In distributed systems, this doesn't work because:</strong></p>
+
+            <ol>
+                <li>
+                    <strong>No global clock</strong>
+                    <ul>
+                        <li>Different machines have different clocks</li>
+                        <li>Clocks drift apart over time</li>
+                        <li>No way to say "everyone record state at 3:00:00 PM exactly"</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Can't stop the system</strong>
+                    <ul>
+                        <li>Stopping production systems is expensive or impossible</li>
+                        <li>Need to take snapshots while system continues running</li>
+                        <li>Like changing a tire while the car is still driving!</li>
+                    </ul>
+                </li>
+                <li>
+                    <strong>Messages are in flight</strong>
+                    <ul>
+                        <li>While you're recording state, messages are traveling</li>
+                        <li>Message might be sent before snapshot but arrive after</li>
+                        <li>Or sent after snapshot but arrive before (in recorded state)</li>
+                        <li>These create inconsistencies!</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>What Could Go Wrong: Inconsistent Snapshots</h3>
+
+            <h4>Example: The Disappearing Money</h4>
+            <p>Bank account system with two processes:</p>
+
+            <p><strong>Scenario:</strong></p>
+            <pre><code>Initial: A has $100, B has $100
+A transfers $50 to B</code></pre>
+
+            <p><strong>Incorrect Snapshot (taken at different times):</strong></p>
+            <pre><code>Time 0: Record A's state: $50 (after sending transfer)
+Time 1: Message "deposit $50" travels from A to B
+Time 2: Record B's state: $100 (before receiving transfer)
+
+Result: Total in snapshot = $50 + $100 = $150
+But actual total should be $200!</code></pre>
+
+            <p>The $50 vanished! It's neither in A's account nor B's account. This is an <strong>inconsistent snapshot</strong>.</p>
+
+            <h4>Example: The Duplicating Money</h4>
+            <p>Same system, different timing:</p>
+
+            <p><strong>Incorrect Snapshot:</strong></p>
+            <pre><code>Time 0: Record B's state: $150 (after receiving transfer)
+Time 1: Message "deposit $50" arrived at B
+Time 2: Record A's state: $100 (before sending transfer)
+
+Result: Total in snapshot = $100 + $150 = $250
+But actual total should be $200!</code></pre>
+
+            <p>We gained $50! The transfer appears to have happened at B but not yet happened at A. This is also <strong>inconsistent</strong>.</p>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Inconsistent Snapshots</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button id="showDisappearing" style="background: var(--accent-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Show Disappearing Money</button>
+                        <button id="showDuplicating" style="background: var(--warning-color); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; font-weight: 600;">Show Duplicating Money</button>
+                    </div>
+                    <canvas id="moneyCanvas" width="800" height="400" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="moneyStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-family: monospace; font-size: 0.9rem;"></div>
+                </div>
+            </div>
+            <script>
+            (function() {
+                const canvas = document.getElementById('moneyCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('moneyStatus');
+
+                let scenario = 'disappearing'; // 'disappearing' or 'duplicating'
+
+                function drawProcess(x, y, name, balance, recorded, recordTime) {
+                    ctx.save();
+
+                    ctx.fillStyle = recorded ? '#27ae60' : '#3498db';
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 3;
+                    ctx.fillRect(x - 60, y - 40, 120, 80);
+                    ctx.strokeRect(x - 60, y - 40, 120, 80);
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(name, x, y - 15);
+
+                    ctx.font = 'bold 20px Arial';
+                    ctx.fillText(`$${balance}`, x, y + 10);
+
+                    if (recorded) {
+                        ctx.fillText('📸', x + 70, y - 50);
+                    }
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '11px Arial';
+                    ctx.fillText(`Record: t=${recordTime}`, x, y + 50);
+
+                    ctx.restore();
+                }
+
+                function drawTransfer(fromX, toX, y, amount, sent, received) {
+                    ctx.save();
+
+                    ctx.strokeStyle = sent ? (received ? '#95a5a6' : '#e74c3c') : '#95a5a6';
+                    ctx.fillStyle = sent ? (received ? '#95a5a6' : '#e74c3c') : '#95a5a6';
+                    ctx.lineWidth = 3;
+
+                    const startX = fromX + 60;
+                    const endX = toX - 60;
+                    const midX = (startX + endX) / 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(startX, y);
+                    ctx.lineTo(endX, y);
+                    ctx.stroke();
+
+                    const headlen = 12;
+                    ctx.beginPath();
+                    ctx.moveTo(endX, y);
+                    ctx.lineTo(endX - headlen, y - headlen / 2);
+                    ctx.lineTo(endX - headlen, y + headlen / 2);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    if (sent && !received) {
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.fillRect(midX - 25, y - 15, 50, 30);
+                        ctx.strokeStyle = '#c0392b';
+                        ctx.strokeRect(midX - 25, y - 15, 50, 30);
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(`$${amount}`, midX, y);
+                    }
+
+                    ctx.restore();
+                }
+
+                function draw() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+
+                    if (scenario === 'disappearing') {
+                        ctx.fillText('Scenario 1: Disappearing Money (Inconsistent)', 400, 30);
+
+                        drawProcess(200, 150, 'Process A', 50, true, 0);
+                        drawProcess(600, 150, 'Process B', 100, true, 2);
+                        drawTransfer(200, 600, 150, 50, true, false);
+
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.fillText('⚠️ $50 IN TRANSIT - NOT COUNTED!', 400, 220);
+
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '14px Arial';
+                        ctx.textAlign = 'left';
+                        ctx.fillText('Timeline:', 50, 280);
+                        ctx.fillText('t=0: A records state ($50) - AFTER sending transfer', 50, 305);
+                        ctx.fillText('t=1: Transfer message in flight', 50, 325);
+                        ctx.fillText('t=2: B records state ($100) - BEFORE receiving transfer', 50, 345);
+
+                        ctx.font = 'bold 16px Arial';
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Total in snapshot: $50 + $100 = $150', 400, 375);
+                        ctx.fillText('Expected: $200 → $50 MISSING!', 400, 395);
+
+                    } else {
+                        ctx.fillText('Scenario 2: Duplicating Money (Inconsistent)', 400, 30);
+
+                        drawProcess(200, 150, 'Process A', 100, true, 2);
+                        drawProcess(600, 150, 'Process B', 150, true, 0);
+                        drawTransfer(200, 600, 150, 50, false, true);
+
+                        ctx.fillStyle = '#f39c12';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.fillText('⚠️ Transfer appears to have happened at B but not at A!', 400, 220);
+
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '14px Arial';
+                        ctx.textAlign = 'left';
+                        ctx.fillText('Timeline:', 50, 280);
+                        ctx.fillText('t=0: B records state ($150) - AFTER receiving transfer', 50, 305);
+                        ctx.fillText('t=1: Transfer already processed by B', 50, 325);
+                        ctx.fillText('t=2: A records state ($100) - BEFORE sending transfer', 50, 345);
+
+                        ctx.font = 'bold 16px Arial';
+                        ctx.fillStyle = '#f39c12';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Total in snapshot: $100 + $150 = $250', 400, 375);
+                        ctx.fillText('Expected: $200 → $50 EXTRA!', 400, 395);
+                    }
+
+                    updateStatus();
+                }
+
+                function updateStatus() {
+                    if (scenario === 'disappearing') {
+                        status.innerHTML = `<strong style="color: var(--accent-color);">Disappearing Money Problem</strong><br>
+                        A deducted $50 (balance=$50), then recorded its state.<br>
+                        B recorded its state ($100) before receiving the $50.<br>
+                        The $50 transfer is in flight but not accounted for in the snapshot.<br>
+                        <br><strong>This violates consistency!</strong> Money disappeared from the system.`;
+                    } else {
+                        status.innerHTML = `<strong style="color: var(--warning-color);">Duplicating Money Problem</strong><br>
+                        B received $50 (balance=$150), then recorded its state.<br>
+                        A recorded its state ($100) before sending the $50.<br>
+                        The snapshot shows B received money that A hasn't sent yet!<br>
+                        <br><strong>This violates consistency!</strong> Money was created out of thin air.`;
+                    }
+                }
+
+                document.getElementById('showDisappearing').addEventListener('click', () => {
+                    scenario = 'disappearing';
+                    draw();
+                });
+
+                document.getElementById('showDuplicating').addEventListener('click', () => {
+                    scenario = 'duplicating';
+                    draw();
+                });
+
+                draw();
+            })();
+            </script>
+
+            <div class="callout-warning">
+                <strong>The Key Question:</strong> How do we ensure the snapshot is consistent - that it represents a state that could have actually occurred?<br>
+                <strong>Answer:</strong> We need the concept of <strong>consistent cuts</strong>.
+            </div>
+        </section>
+
+        <section id="consistent-cuts-and-global-states">
+            <h2>Consistent Cuts and Global States</h2>
+
+            <h3>Terminology First</h3>
+            <p>Let's define our terms precisely:</p>
+
+            <p><strong>Events:</strong></p>
+            <ul>
+                <li>Something that happens at a process</li>
+                <li>Examples: send message, receive message, local computation</li>
+                <li>Each event occurs at a specific process at a specific local time</li>
+            </ul>
+
+            <p><strong>Cut:</strong></p>
+            <ul>
+                <li>A "cut" through the spacetime diagram of events</li>
+                <li>Divides events into "before the cut" (included) and "after the cut" (not included)</li>
+                <li>Formally: A cut C is a set of events, one prefix of events from each process</li>
+            </ul>
+
+            <p><strong>Frontier of the Cut:</strong></p>
+            <ul>
+                <li>The "boundary" of the cut</li>
+                <li>The last events included in each process</li>
+                <li>Visual: the line separating included vs. excluded events</li>
+            </ul>
+
+            <p><strong>Visualization:</strong></p>
+            <pre><code>Process A: e1 -> e2 -> e3 | -> e4 -> e5
+                         |
+Process B: e6 -> e7 | -> e8 -> e9
+                    |
+Process C: e10 | -> e11 -> e12 -> e13
+               |
+             Frontier (the cut line)
+
+Cut C = {e1, e2, e3, e6, e7, e10}</code></pre>
+
+            <h3>What Makes a Cut "Consistent"?</h3>
+            <p><strong>Key Idea:</strong> A cut is consistent if it respects causality (Lamport's happens-before relationship).</p>
+
+            <p><strong>Formal Definition:</strong></p>
+            <p>A cut C is <strong>consistent</strong> if:</p>
+            <ul>
+                <li>For every event e in C, if f → e (f happens-before e), then f is also in C</li>
+            </ul>
+
+            <p><strong>In Plain English:</strong></p>
+            <ul>
+                <li>If an event is in the snapshot, all events that causally precede it must also be in the snapshot</li>
+                <li>No "effects without causes"</li>
+                <li>If you received a message in the snapshot, the send must also be in the snapshot</li>
+            </ul>
+
+            <div class="callout-info">
+                <strong>Happens-Before (→) Review:</strong>
+                <p>Recall from Lamport clocks, event a → event b if:</p>
+                <ol>
+                    <li>a and b occur on same process, and a occurs before b in local time, OR</li>
+                    <li>a is sending a message, b is receiving that message, OR</li>
+                    <li>Transitivity: a → c and c → b, then a → b</li>
+                </ol>
+            </div>
+
+            <h3>Visualizing Consistent vs. Inconsistent Cuts</h3>
+
+            <h4>Consistent Cut:</h4>
+            <pre><code>Process A: [send m] -> [local] -> |
+             |                    |
+             |                    |
+Process B:   |-> [receive m] -> [local] |
+
+Cut includes send AND receive
+This is consistent! Cause and effect both in cut.</code></pre>
+
+            <h4>Inconsistent Cut (Orphan Message):</h4>
+            <pre><code>Process A: [send m] -> [local] ->
+             |
+             |         Cut ->    |
+Process B:   |                   | -> [receive m]
+
+Cut includes receive but NOT send
+This is inconsistent! Effect without cause.</code></pre>
+
+            <h4>Inconsistent Cut (Lost Message):</h4>
+            <pre><code>Process A: [send m] | -> [local]
+             |      |
+             |      Cut
+Process B:  [local] | -> [receive m]
+
+Send is in cut, receive is not
+BUT message doesn't appear in channel state either
+This is inconsistent! Message disappeared.</code></pre>
+
+            <h4>Correct Handling of In-Flight Messages:</h4>
+            <pre><code>Process A: [send m] -> |
+             |         Cut
+Process B:             | -> [receive m]
+
+Send in cut, receive not in cut
+Message recorded as "in transit" in channel state
+This IS consistent! Message accounted for.</code></pre>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Consistent vs Inconsistent Cuts</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button onclick="setCutExample(0)" style="background: var(--success-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Consistent</button>
+                        <button onclick="setCutExample(1)" style="background: var(--accent-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Orphan Msg</button>
+                        <button onclick="setCutExample(2)" style="background: var(--accent-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Lost Msg</button>
+                        <button onclick="setCutExample(3)" style="background: var(--success-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">In-Flight OK</button>
+                    </div>
+                    <canvas id="cutCanvas" width="800" height="350" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="cutStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+            <script>
+            let currentCut = 0;
+            function setCutExample(n) { currentCut = n; drawCuts(); }
+            (function() {
+                const canvas = document.getElementById('cutCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('cutStatus');
+
+                const examples = [
+                    {
+                        name: 'Consistent Cut',
+                        p1Cut: 3, p2Cut: 3,
+                        consistent: true,
+                        explanation: 'Both send and receive are in the cut. All causal dependencies satisfied.'
+                    },
+                    {
+                        name: 'Inconsistent: Orphan Message',
+                        p1Cut: 1, p2Cut: 3,
+                        consistent: false,
+                        explanation: 'Receive is in cut but send is NOT. Effect without cause - INCONSISTENT!'
+                    },
+                    {
+                        name: 'Inconsistent: Lost Message',
+                        p1Cut: 3, p2Cut: 1,
+                        consistent: false,
+                        explanation: 'Send is in cut but receive is NOT, and message not in channel state - INCONSISTENT!'
+                    },
+                    {
+                        name: 'Consistent: In-Flight Message',
+                        p1Cut: 2, p2Cut: 1,
+                        consistent: true,
+                        explanation: 'Send in cut, receive NOT in cut, but message recorded in channel state - CONSISTENT!'
+                    }
+                ];
+
+                window.drawCuts = function() {
+                    const ex = examples[currentCut];
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    const y1 = 100, y2 = 250;
+                    const events = [
+                        {p: 1, x: 100, y: y1, label: 'e1'},
+                        {p: 1, x: 250, y: y1, label: 'send'},
+                        {p: 1, x: 400, y: y1, label: 'e2'},
+                        {p: 1, x: 550, y: y1, label: 'e3'},
+                        {p: 2, x: 100, y: y2, label: 'e4'},
+                        {p: 2, x: 400, y: y2, label: 'recv'},
+                        {p: 2, x: 550, y: y2, label: 'e5'},
+                        {p: 2, x: 700, y: y2, label: 'e6'}
+                    ];
+
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(50, y1);
+                    ctx.lineTo(750, y1);
+                    ctx.moveTo(50, y2);
+                    ctx.lineTo(750, y2);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Process 1', 50, y1 - 20);
+                    ctx.fillText('Process 2', 50, y2 - 20);
+
+                    ctx.strokeStyle = '#3498db';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(250, y1);
+                    ctx.lineTo(400, y2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    const cutX1 = 100 + ex.p1Cut * 150;
+                    const cutX2 = 100 + ex.p2Cut * 150;
+
+                    ctx.strokeStyle = ex.consistent ? '#27ae60' : '#e74c3c';
+                    ctx.lineWidth = 4;
+                    ctx.setLineDash([10, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(cutX1, y1 - 30);
+                    ctx.lineTo(cutX1, y1 + 30);
+                    ctx.lineTo(cutX2, y2 - 30);
+                    ctx.lineTo(cutX2, y2 + 30);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    events.forEach(e => {
+                        const inCut = (e.p === 1 && e.x <= cutX1) || (e.p === 2 && e.x <= cutX2);
+                        ctx.fillStyle = inCut ? '#3498db' : '#95a5a6';
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '11px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(e.label, e.x, e.y + 30);
+                    });
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(ex.name, 400, 30);
+
+                    status.innerHTML = `<strong style="color: ${ex.consistent ? 'var(--success-color)' : 'var(--accent-color)'}">
+                    ${ex.consistent ? '✓ CONSISTENT' : '✗ INCONSISTENT'}</strong><br>${ex.explanation}`;
+                };
+
+                drawCuts();
+            })();
+            </script>
+
+            <h3>Types of Predicates We Can Detect</h3>
+            <p>Once we have a consistent snapshot, we can check predicates (conditions) about the global state.</p>
+
+            <h4>Stable Predicates:</h4>
+            <ul>
+                <li>Once true, stays true forever</li>
+                <li>Examples:
+                    <ul>
+                        <li>Deadlock (once deadlocked, stays deadlocked)</li>
+                        <li>Termination (once terminated, stays terminated)</li>
+                        <li>Garbage (once garbage, stays garbage)</li>
+                    </ul>
+                </li>
+            </ul>
+            <p><strong>Why stable predicates are great:</strong> If snapshot shows predicate is true, then it's DEFINITELY true in the real system now.</p>
+
+            <h4>Transient Predicates:</h4>
+            <ul>
+                <li>Can become true, then false again</li>
+                <li>Examples:
+                    <ul>
+                        <li>"Process A has exactly 5 tokens"</li>
+                        <li>"Number of messages in transit &lt; 10"</li>
+                        <li>Bank balance invariant</li>
+                    </ul>
+                </li>
+            </ul>
+            <p><strong>Why transient predicates are tricky:</strong> If snapshot shows predicate is true, it might already be false in real system. If snapshot shows false, it might have become true.</p>
+
+            <p><strong>For Debugging:</strong></p>
+            <ul>
+                <li>If checking "invariant should always hold" (stable predicate: invariant violated)
+                    <ul>
+                        <li>If snapshot shows violation, BUG FOUND!</li>
+                        <li>If snapshot shows no violation, doesn't mean no bug (might violate after snapshot)</li>
+                    </ul>
+                </li>
+            </ul>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Stable = Sticks around, Transient = Temporary"
+            </div>
+        </section>
+
+        <section id="the-chandy-lamport-algorithm">
+            <h2>The Chandy-Lamport Algorithm</h2>
+
+            <p>This is the elegant solution to the distributed snapshot problem! It was invented by K. Mani Chandy and Leslie Lamport (yes, the same Lamport from Lamport clocks).</p>
+
+            <h3>The Big Idea</h3>
+            <p><strong>Core Insight:</strong> Use special <strong>marker messages</strong> to coordinate the snapshot without stopping the system.</p>
+
+            <p><strong>The Protocol in One Sentence:</strong> When you start recording your state, immediately send markers to everyone, and record messages that arrive after you start but before you receive markers back.</p>
+
+            <div class="callout-info">
+                <strong>Analogy:</strong> Think of markers like a "wave" that propagates through the system. When the wave hits you, you take your local snapshot. The wave separates "before snapshot" messages from "after snapshot" messages.
+            </div>
+
+            <h3>Assumptions</h3>
+            <p>The algorithm assumes:</p>
+
+            <ol>
+                <li><strong>Neither channels nor processes fail</strong>
+                    <ul>
+                        <li>No crashes during snapshot</li>
+                        <li>This is an idealized algorithm; real systems need more sophistication</li>
+                    </ul>
+                </li>
+                <li><strong>Communication is reliable</strong>
+                    <ul>
+                        <li>Every message sent is eventually received</li>
+                        <li>Messages arrive exactly once (no duplicates, no loss)</li>
+                    </ul>
+                </li>
+                <li><strong>Channels are unidirectional and FIFO</strong>
+                    <ul>
+                        <li>Messages between any two processes arrive in order sent</li>
+                        <li>This is crucial! FIFO ensures markers act as barriers</li>
+                    </ul>
+                </li>
+                <li><strong>Graph is strongly connected</strong>
+                    <ul>
+                        <li>Path exists from any process to any other</li>
+                        <li>Ensures markers eventually reach everyone</li>
+                    </ul>
+                </li>
+                <li><strong>Any process may initiate snapshot</strong>
+                    <ul>
+                        <li>Don't need centralized coordinator</li>
+                        <li>Multiple snapshots can run concurrently (with different colors)</li>
+                    </ul>
+                </li>
+                <li><strong>Processes continue execution</strong>
+                    <ul>
+                        <li>System doesn't pause</li>
+                        <li>Normal messages continue during snapshot</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Reliable FIFO Connected Channels, Keep Running"
+            </div>
+
+            <h3>The Algorithm: Process Perspective</h3>
+            <p>Each process maintains:</p>
+            <ul>
+                <li><code>state</code>: local state (variables, execution point, etc.)</li>
+                <li><code>has_recorded</code>: boolean, have I recorded my local state yet?</li>
+                <li><code>channel_state[j]</code>: recorded state of incoming channel from process j</li>
+                <li><code>marker_received[j]</code>: boolean, received marker from process j yet?</li>
+            </ul>
+
+            <h4>Algorithm for Process P_i:</h4>
+
+            <p><strong>MARKER RECEIVING RULE:</strong></p>
+            <pre><code>Upon receiving marker from process P_j:
+
+  if (!has_recorded):
+    // First marker received - triggers local snapshot
+    record local state
+    has_recorded = true
+    channel_state[j] = empty  // no messages in this channel
+    marker_received[j] = true
+
+    for each outgoing channel k:
+      send marker on channel k
+
+  else:
+    // Already recorded - this marker ends channel recording
+    channel_state[j] = all messages received on channel j
+                       since local state was recorded
+                       and before this marker
+    marker_received[j] = true</code></pre>
+
+            <p><strong>NORMAL MESSAGE RECEIVING RULE:</strong></p>
+            <pre><code>Upon receiving normal message m from process P_j:
+
+  if (has_recorded && !marker_received[j]):
+    // We've snapshotted, but sender hasn't (w.r.t. this channel)
+    // This message is "in flight" in the snapshot
+    add m to channel_state[j]
+
+  process message m normally (application logic)</code></pre>
+
+            <p><strong>INITIATING SNAPSHOT:</strong></p>
+            <pre><code>To initiate snapshot:
+  record local state
+  has_recorded = true
+
+  for each outgoing channel k:
+    send marker on channel k
+
+  for each incoming channel j:
+    channel_state[j] = empty  // will record messages until marker arrives
+    marker_received[j] = false</code></pre>
+
+            <p><strong>TERMINATION:</strong></p>
+            <pre><code>Snapshot is complete when:
+  has_recorded == true AND
+  marker_received[j] == true for all j
+
+At this point:
+  - Local state recorded
+  - All channel states recorded
+  - Send to coordinator (if collecting global snapshot)</code></pre>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Chandy-Lamport Algorithm Flow</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <button onclick="clStep = Math.max(0, clStep-1); drawCL()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">← Prev</button>
+                        <button onclick="clStep = Math.min(6, clStep+1); drawCL()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">Next →</button>
+                        <button onclick="clStep = 0; drawCL()" style="background: var(--accent-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        <span id="clStepLabel" style="margin-left: 1rem; font-weight: bold;"></span>
+                    </div>
+                    <canvas id="clCanvas" width="700" height="450" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="clStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+            <script>
+            let clStep = 0;
+            (function() {
+                const canvas = document.getElementById('clCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('clStatus');
+                const label = document.getElementById('clStepLabel');
+
+                const procs = [
+                    {id: 'A', x: 150, y: 225, state: 100, recorded: false, markersSent: false},
+                    {id: 'B', x: 350, y: 100, state: 200, recorded: false, markersSent: false},
+                    {id: 'C', x: 550, y: 225, state: 150, recorded: false, markersSent: false}
+                ];
+
+                const steps = [
+                    {desc: 'Initial state', action: []},
+                    {desc: 'A initiates snapshot', action: ['A-record', 'A-send-markers']},
+                    {desc: 'B receives marker from A', action: ['B-record', 'B-send-markers']},
+                    {desc: 'C receives marker from A', action: ['C-record', 'C-send-markers']},
+                    {desc: 'A receives markers back', action: ['A-complete']},
+                    {desc: 'B receives marker from C', action: ['B-complete']},
+                    {desc: 'C receives marker from B - Complete!', action: ['C-complete']}
+                ];
+
+                window.drawCL = function() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    label.textContent = `Step ${clStep}/6: ${steps[clStep].desc}`;
+
+                    let aRecorded = clStep >= 1;
+                    let bRecorded = clStep >= 2;
+                    let cRecorded = clStep >= 3;
+
+                    // Draw connections
+                    ctx.strokeStyle = '#bdc3c7';
+                    ctx.lineWidth = 2;
+                    [[0,1],[0,2],[1,2]].forEach(([i,j]) => {
+                        ctx.beginPath();
+                        ctx.moveTo(procs[i].x, procs[i].y);
+                        ctx.lineTo(procs[j].x, procs[j].y);
+                        ctx.stroke();
+                    });
+
+                    // Draw markers in flight
+                    if (clStep === 1) {
+                        drawMarker(procs[0].x, procs[0].y, procs[1].x, procs[1].y, 0.3);
+                        drawMarker(procs[0].x, procs[0].y, procs[2].x, procs[2].y, 0.3);
+                    } else if (clStep === 2) {
+                        drawMarker(procs[1].x, procs[1].y, procs[2].x, procs[2].y, 0.5);
+                    }
+
+                    // Draw processes
+                    drawProc(procs[0], aRecorded, clStep >= 4);
+                    drawProc(procs[1], bRecorded, clStep >= 5);
+                    drawProc(procs[2], cRecorded, clStep >= 6);
+
+                    // Status
+                    let html = `<strong>${steps[clStep].desc}</strong><br><br>`;
+                    html += `Process States:<br>`;
+                    html += `A: ${aRecorded ? '✓ Recorded (state=100)' : 'Not recorded'} ${clStep >= 4 ? '✓ Complete' : ''}<br>`;
+                    html += `B: ${bRecorded ? '✓ Recorded (state=200)' : 'Not recorded'} ${clStep >= 5 ? '✓ Complete' : ''}<br>`;
+                    html += `C: ${cRecorded ? '✓ Recorded (state=150)' : 'Not recorded'} ${clStep >= 6 ? '✓ Complete' : ''}<br>`;
+                    if (clStep === 6) {
+                        html += `<br><strong style="color: var(--success-color);">Snapshot Complete! Total = 450</strong>`;
+                    }
+                    status.innerHTML = html;
+                };
+
+                function drawProc(p, recorded, complete) {
+                    ctx.save();
+                    ctx.fillStyle = complete ? '#27ae60' : (recorded ? '#3498db' : '#95a5a6');
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 35, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(p.id, p.x, p.y - 5);
+                    ctx.font = '12px Arial';
+                    ctx.fillText(p.state, p.x, p.y + 10);
+
+                    if (recorded) {
+                        ctx.fillText('📸', p.x + 45, p.y - 35);
+                    }
+                    if (complete) {
+                        ctx.fillText('✓', p.x - 45, p.y - 35);
+                    }
+                    ctx.restore();
+                }
+
+                function drawMarker(x1, y1, x2, y2, progress) {
+                    const x = x1 + (x2 - x1) * progress;
+                    const y = y1 + (y2 - y1) * progress;
+                    ctx.fillStyle = '#f39c12';
+                    ctx.strokeStyle = '#e67e22';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 10px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('M', x, y);
+                }
+
+                drawCL();
+            })();
+            </script>
+
+            <h3>Why FIFO Channels Are Essential</h3>
+            <p><strong>FIFO Property:</strong> Messages arrive in the order they were sent.</p>
+
+            <p><strong>Why we need it:</strong></p>
+
+            <p>Suppose P1 sends to P2:</p>
+            <pre><code>P1 sends: [normal message m1] [marker] [normal message m2]</code></pre>
+
+            <p><strong>With FIFO:</strong></p>
+            <pre><code>P2 receives: [m1] [marker] [m2]
+- m1 arrives before marker → m1 is before snapshot
+- m2 arrives after marker → m2 is after snapshot
+Perfect! Marker acts as a clean barrier.</code></pre>
+
+            <p><strong>Without FIFO (messages can reorder):</strong></p>
+            <pre><code>P2 might receive: [marker] [m1] [m2]
+- m1 arrives after marker, but was sent before!
+- P2 thinks m1 is "in flight" but it's actually "before snapshot"
+- Inconsistent!</code></pre>
+
+            <div class="callout-warning">
+                <strong>The Marker Magic:</strong> Because channels are FIFO, the marker message acts as a separator. All messages sent before the marker will arrive before it. All messages sent after will arrive after. This creates a clean separation between "before snapshot" and "after snapshot" states.
+            </div>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "FIFO Makes Markers Act Like Fences"
+            </div>
+
+            <h3>Step-by-Step Example: Small System</h3>
+            <p>Let's trace through a simple example with 3 processes.</p>
+
+            <p><strong>System:</strong></p>
+            <ul>
+                <li>3 processes: A, B, C</li>
+                <li>Channels: A→B, A→C, B→C, C→A, C→B (partially connected)</li>
+            </ul>
+
+            <p><strong>Initial State:</strong></p>
+            <pre><code>Process A: balance = $100
+Process B: balance = $50
+Process C: balance = $75
+All channels empty</code></pre>
+
+            <p><strong>Timeline:</strong></p>
+
+            <h4>T0: System running normally</h4>
+            <pre><code>A sends $10 to B  (message m1 in channel A→B)</code></pre>
+
+            <h4>T1: A initiates snapshot</h4>
+            <pre><code>A's action:
+  1. Record local state: balance = $90 (after sending $10)
+  2. Set has_recorded = true
+  3. Send marker on all outgoing channels: A→B, A→C
+  4. Initialize channel_state[C→A] = empty</code></pre>
+
+            <h4>State after T1:</h4>
+            <pre><code>A: state recorded = $90, markers sent to B and C
+B: not recorded yet, message m1 in channel
+C: not recorded yet
+Channels:
+  - A→B: [m1: +$10] [marker]
+  - A→C: [marker]</code></pre>
+
+            <h4>T2a: B receives m1 from A</h4>
+            <pre><code>B receives +$10 message
+B hasn't recorded yet, so just normal processing
+B processes it: balance = $50 + $10 = $60</code></pre>
+
+            <h4>T2b: B receives marker from A</h4>
+            <pre><code>B's action:
+  1. First marker received!
+  2. Record local state: balance = $60
+  3. has_recorded = true
+  4. Channel_state[A→B] = empty (first marker from A)
+  5. marker_received[A] = true
+  6. Send marker on outgoing channel: B→C</code></pre>
+
+            <h4>T3: C receives marker from A</h4>
+            <pre><code>C's action:
+  1. First marker received!
+  2. Record local state: balance = $75
+  3. has_recorded = true
+  4. Channel_state[A→C] = empty (first marker)
+  5. marker_received[A] = true
+  6. Send markers on outgoing channels: C→A, C→B</code></pre>
+
+            <h4>T4-T6: Remaining markers propagate</h4>
+            <p>Each process receives markers from other processes and closes their channel recordings.</p>
+
+            <h4>Final Snapshot:</h4>
+            <pre><code>Process States:
+  A: $90
+  B: $60
+  C: $75
+  Total: $225 ✓
+
+Channel States:
+  A→B: empty
+  A→C: empty
+  B→C: empty
+  C→A: empty
+  C→B: empty
+
+Total in system: $90 + $60 + $75 = $225
+This matches reality! Consistent snapshot.</code></pre>
+
+            <div class="callout-info">
+                <strong>Key Observations:</strong>
+                <ol>
+                    <li>The $10 transfer from A to B completed before snapshot finalized</li>
+                    <li>B received m1 before receiving marker (FIFO guarantee)</li>
+                    <li>All channels ended up empty in snapshot</li>
+                    <li>Processes continued running during snapshot</li>
+                    <li>Total money conserved (consistency check passes!)</li>
+                </ol>
+            </div>
+
+            <h3>More Complex Example: Messages in Flight</h3>
+            <p>Let's do an example where messages are captured "in flight."</p>
+
+            <p><strong>System:</strong> 2 processes: P1, P2</p>
+
+            <p><strong>Initial:</strong></p>
+            <pre><code>P1: counter = 0
+P2: counter = 0</code></pre>
+
+            <p><strong>Timeline:</strong></p>
+
+            <h4>T0: P2 sends "increment" to P1</h4>
+            <pre><code>P2: counter = 0
+P2: send "increment" to P1
+Channel P2→P1: [increment]</code></pre>
+
+            <h4>T1: P1 initiates snapshot</h4>
+            <pre><code>P1: record state counter = 0 (hasn't received increment yet)
+P1: send marker on P1→P2
+P1: will record channel_state[P2→P1]</code></pre>
+
+            <h4>T2: P1 receives "increment" from P2</h4>
+            <pre><code>P1 has recorded (has_recorded = true)
+P1 has NOT received marker from P2 yet (marker_received[P2] = false)
+
+So P1 adds "increment" to channel_state[P2→P1]
+channel_state[P2→P1] = ["increment"]
+
+P1 also processes message: counter = 0 + 1 = 1 (in real execution)</code></pre>
+
+            <h4>T3: P2 receives marker from P1</h4>
+            <pre><code>P2 first marker!
+P2 record state: counter = 0 (sent increment but still 0)
+P2 channel_state[P1→P2] = empty
+P2 send marker on P2→P1</code></pre>
+
+            <h4>T4: P1 receives marker from P2</h4>
+            <pre><code>P1 already recorded
+P1 now received marker from P2
+Close recording of channel P2→P1
+channel_state[P2→P1] = ["increment"] (message received between T1 and T4)</code></pre>
+
+            <h4>Final Snapshot:</h4>
+            <pre><code>P1 state: counter = 0
+P2 state: counter = 0
+Channel P2→P1: contains "increment" message
+Channel P1→P2: empty
+
+Interpretation:
+- P2 sent increment, but P1 hasn't processed it yet (in snapshot view)
+- Message is "in flight"
+- Total: 0 + 0 + 1 (in flight) = 1 increment, consistent!</code></pre>
+
+            <div class="callout-success">
+                <strong>Key Point:</strong> The message sent before P1's snapshot but received (in terms of processing) after is captured as "in flight" in the channel state. This preserves consistency!
+            </div>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Messages in Flight Example</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button onclick="mifStep = Math.max(0, mifStep-1); drawMIF()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">← Prev</button>
+                        <button onclick="mifStep = Math.min(4, mifStep+1); drawMIF()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">Next →</button>
+                        <button onclick="mifStep = 0; drawMIF()" style="background: var(--accent-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer;">Reset</button>
+                        <span id="mifLabel" style="margin-left: 1rem; font-weight: bold;"></span>
+                    </div>
+                    <canvas id="mifCanvas" width="800" height="450" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="mifStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+            <script>
+            let mifStep = 0;
+            (function() {
+                const canvas = document.getElementById('mifCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('mifStatus');
+                const label = document.getElementById('mifLabel');
+
+                const steps = [
+                    'P2 sends increment message to P1',
+                    'P1 initiates snapshot (records counter=0)',
+                    'P1 receives increment (adds to channel_state)',
+                    'P2 receives marker, records state',
+                    'Final: P1 receives marker - Snapshot complete!'
+                ];
+
+                window.drawMIF = function() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    label.textContent = `Step ${mifStep + 1}/5`;
+
+                    const y1 = 120, y2 = 280;
+                    const p1x = 200, p2x = 600;
+
+                    // Split view labels
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Real Execution View', 400, 30);
+
+                    // Draw timeline
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(50, y1);
+                    ctx.lineTo(750, y1);
+                    ctx.moveTo(50, y2);
+                    ctx.lineTo(750, y2);
+                    ctx.stroke();
+
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('P1', 50, y1 - 10);
+                    ctx.fillText('P2', 50, y2 - 10);
+
+                    // Draw processes
+                    let p1State = mifStep >= 2 ? 1 : 0; // Real counter value
+                    let p1Recorded = mifStep >= 1;
+                    let p2Recorded = mifStep >= 3;
+
+                    drawProcBox(p1x, y1, 'P1', p1State, p1Recorded, mifStep >= 4);
+                    drawProcBox(p2x, y2, 'P2', 0, p2Recorded, mifStep >= 4);
+
+                    // Draw message flow
+                    if (mifStep === 0) {
+                        drawMsg(p2x - 50, y2 - 20, p1x + 50, y1 + 20, '+1', 0.5, '#3498db');
+                    } else if (mifStep === 1) {
+                        drawMsg(p2x - 50, y2 - 20, p1x + 50, y1 + 20, '+1', 0.8, '#3498db');
+                    }
+
+                    // Draw markers
+                    if (mifStep === 1) {
+                        drawMsg(p1x + 50, y1 + 20, p2x - 50, y2 - 20, 'M', 0.3, '#f39c12');
+                    } else if (mifStep === 2 || mifStep === 3) {
+                        drawMsg(p1x + 50, y1 + 20, p2x - 50, y2 - 20, 'M', 0.7, '#f39c12');
+                    }
+
+                    if (mifStep === 3) {
+                        drawMsg(p2x - 50, y2 - 20, p1x + 50, y1 + 20, 'M', 0.3, '#f39c12');
+                    }
+
+                    // Snapshot view (bottom panel)
+                    ctx.fillStyle = 'rgba(52, 152, 219, 0.1)';
+                    ctx.fillRect(50, 350, 700, 80);
+                    ctx.strokeStyle = '#3498db';
+                    ctx.strokeRect(50, 350, 700, 80);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Snapshot View:', 60, 375);
+
+                    if (mifStep >= 1) {
+                        let snapText = 'P1: counter=0 (recorded), ';
+                        if (mifStep >= 2 && mifStep < 4) {
+                            snapText += 'channel_state[P2→P1] = [+1]';
+                        } else if (mifStep >= 4) {
+                            snapText += 'channel_state[P2→P1] = [+1] ✓';
+                        } else {
+                            snapText += 'recording channel...';
+                        }
+                        ctx.fillText(snapText, 60, 395);
+                    }
+                    if (mifStep >= 3) {
+                        ctx.fillText('P2: counter=0 (recorded)', 60, 415);
+                    }
+
+                    // Status
+                    let html = `<strong>${steps[mifStep]}</strong><br><br>`;
+                    if (mifStep === 0) {
+                        html += 'P2 sends increment message before snapshot starts.';
+                    } else if (mifStep === 1) {
+                        html += 'P1 records state (counter=0) and sends marker to P2.<br>Message is in transit!';
+                    } else if (mifStep === 2) {
+                        html += 'P1 receives increment. Since P1 recorded but hasn\'t received marker from P2,<br>the message is added to channel_state[P2→P1].<br>P1 also processes it normally (counter becomes 1 in real execution).';
+                    } else if (mifStep === 3) {
+                        html += 'P2 receives marker, records its state (counter=0).';
+                    } else {
+                        html += '<strong style="color: var(--success-color);">Snapshot Complete!</strong><br>';
+                        html += 'Snapshot: P1=0, P2=0, channel[P2→P1]=[+1]<br>';
+                        html += 'Real execution: P1=1, P2=0<br>';
+                        html += 'The in-flight message is captured in the channel state!';
+                    }
+                    status.innerHTML = html;
+                };
+
+                function drawProcBox(x, y, name, value, recorded, complete) {
+                    ctx.save();
+                    ctx.fillStyle = complete ? '#27ae60' : (recorded ? '#3498db' : '#95a5a6');
+                    ctx.fillRect(x - 40, y - 25, 80, 50);
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x - 40, y - 25, 80, 50);
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`${name}:${value}`, x, y);
+                    if (recorded) {
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.font = '16px Arial';
+                        ctx.fillText('📸', x + 50, y - 30);
+                    }
+                    ctx.restore();
+                }
+
+                function drawMsg(x1, y1, x2, y2, label, progress, color) {
+                    const x = x1 + (x2 - x1) * progress;
+                    const y = y1 + (y2 - y1) * progress;
+
+                    ctx.save();
+                    ctx.strokeStyle = color + '80';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = color === '#f39c12' ? '#e67e22' : '#2980b9';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 11px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, x, y);
+                    ctx.restore();
+                }
+
+                drawMIF();
+            })();
+            </script>
+        </section>
+
+        <section id="detailed-examples-and-traces">
+            <h2>Detailed Examples and Traces</h2>
+
+            <h3>Example 1: Bank Transfers</h3>
+
+            <p><strong>System:</strong></p>
+            <ul>
+                <li>3 banks: A, B, C</li>
+                <li>Initial: A = $100, B = $200, C = $300</li>
+                <li>Total: $600</li>
+            </ul>
+
+            <p><strong>Activity:</strong></p>
+
+            <h4>T0: B initiates snapshot</h4>
+            <pre><code>B records: balance = $200
+B sends markers to A and C</code></pre>
+
+            <h4>T1: A transfers $50 to C</h4>
+            <pre><code>A: balance = $100 - $50 = $50
+A sends "transfer $50" to C
+Channel A→C: [transfer $50]</code></pre>
+
+            <h4>T2: A receives marker from B</h4>
+            <pre><code>A records: balance = $50 (after sending transfer)
+A sends markers to B and C
+A starts recording channel_state[B→A] and channel_state[C→A]</code></pre>
+
+            <h4>T3: C receives marker from B</h4>
+            <pre><code>C records: balance = $300 (hasn't received transfer yet)
+C channel_state[B→C] = empty (first marker)
+C sends markers to A and B
+C starts recording channel_state[A→C]</code></pre>
+
+            <h4>T4: C receives "transfer $50" from A</h4>
+            <pre><code>C has recorded = true
+C hasn't received marker from A yet (marker_received[A] = false)
+So: channel_state[A→C].append("transfer $50")
+C processes: balance = $300 + $50 = $350 (in real execution)</code></pre>
+
+            <h4>T5: C receives marker from A</h4>
+            <pre><code>C already recorded
+channel_state[A→C] = ["transfer $50"]
+Close channel recording</code></pre>
+
+            <h4>Final Snapshot:</h4>
+            <pre><code>States:
+  A: $50
+  B: $200
+  C: $300
+
+Channel States:
+  A→C: [transfer $50]
+  All others: empty
+
+Total: $50 + $200 + $300 + $50 = $600 ✓</code></pre>
+
+            <div class="callout-info">
+                <strong>Interpretation:</strong>
+                <ul>
+                    <li>A sent the $50, recorded its state after sending</li>
+                    <li>C hadn't received it yet when C recorded state</li>
+                    <li>The $50 is captured as "in transit"</li>
+                    <li>Total is conserved: consistent snapshot!</li>
+                </ul>
+            </div>
+
+            <h3>Example 2: Token Counting</h3>
+
+            <p><strong>System:</strong></p>
+            <ul>
+                <li>3 processes: P, Q, R</li>
+                <li>Initially: P has 2 tokens, Q has 1 token, R has 0 tokens</li>
+                <li>Processes pass tokens around</li>
+            </ul>
+
+            <p><strong>Activity:</strong></p>
+
+            <h4>T0: P sends 1 token to Q</h4>
+            <pre><code>P: tokens = 2 - 1 = 1
+Channel P→Q: [token]</code></pre>
+
+            <h4>T1: P initiates snapshot</h4>
+            <pre><code>P records: tokens = 1 (after sending)
+P sends markers to Q, R</code></pre>
+
+            <h4>T2: Q receives token from P</h4>
+            <pre><code>Q hasn't recorded yet
+Q processes normally: tokens = 1 + 1 = 2</code></pre>
+
+            <h4>T3: Q sends 2 tokens to R</h4>
+            <pre><code>Q: tokens = 2 - 2 = 0
+Channel Q→R: [token, token]</code></pre>
+
+            <h4>T4: Q receives marker from P</h4>
+            <pre><code>Q records: tokens = 0 (after sending to R)
+Q channel_state[P→Q] = empty (first marker from P)
+Q sends markers to P, R
+Q starts recording channel_state[R→Q]</code></pre>
+
+            <h4>T5: R receives marker from P</h4>
+            <pre><code>R records: tokens = 0 (hasn't received from Q yet)
+R channel_state[P→R] = empty
+R sends markers to P, Q
+R starts recording channel_state[Q→R]</code></pre>
+
+            <h4>T6: R receives 2 tokens from Q</h4>
+            <pre><code>R has recorded = true
+R hasn't received marker from Q yet
+So: channel_state[Q→R].append(2 tokens)
+R processes: tokens = 0 + 2 = 2 (in reality)</code></pre>
+
+            <h4>T7: R receives marker from Q</h4>
+            <pre><code>R already recorded
+channel_state[Q→R] = [2 tokens]
+Close channel</code></pre>
+
+            <h4>Final Snapshot:</h4>
+            <pre><code>States:
+  P: 1 token
+  Q: 0 tokens
+  R: 0 tokens
+
+Channel States:
+  Q→R: 2 tokens
+  All others: empty
+
+Total: 1 + 0 + 0 + 2 = 3 tokens ✓</code></pre>
+
+            <div class="callout-success">
+                <strong>Verification:</strong>
+                <ul>
+                    <li>Initially: 2 + 1 + 0 = 3 tokens</li>
+                    <li>Snapshot: 1 + 0 + 0 + 2 = 3 tokens</li>
+                    <li>Conserved! Consistent snapshot!</li>
+                </ul>
+            </div>
+
+            <h3>Example 3: Detecting Deadlock (from Lecture)</h3>
+
+            <p><strong>System:</strong></p>
+            <ul>
+                <li>4 processes forming a "waits-for" graph</li>
+                <li>P1 waits for P2</li>
+                <li>P2 waits for P3</li>
+                <li>P3 waits for P4</li>
+                <li>P4 waits for P1</li>
+                <li>DEADLOCK! Circular dependency.</li>
+            </ul>
+
+            <p><strong>Snapshot Process:</strong></p>
+            <ol>
+                <li><strong>Initiate snapshot</strong> (any process can start)</li>
+                <li><strong>Record each process's "waiting for" state</strong></li>
+                <li><strong>Construct waits-for graph from snapshot</strong></li>
+                <li><strong>Check for cycles</strong></li>
+            </ol>
+
+            <p><strong>Snapshot Result:</strong></p>
+            <pre><code>P1: waiting_for = P2
+P2: waiting_for = P3
+P3: waiting_for = P4
+P4: waiting_for = P1
+
+Waits-for graph: P1 → P2 → P3 → P4 → P1
+Cycle detected! DEADLOCK confirmed.</code></pre>
+
+            <div class="callout-warning">
+                <strong>Important:</strong> This is a <strong>stable predicate</strong>. Once deadlock exists, it persists (processes stay deadlocked). So detecting it in a snapshot means it definitely exists in the real system.
+            </div>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Complete Trace Examples</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button onclick="traceExample = 0; drawTrace()" style="background: var(--success-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Bank Transfers</button>
+                        <button onclick="traceExample = 1; drawTrace()" style="background: var(--info-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Token Counting</button>
+                        <button onclick="traceExample = 2; drawTrace()" style="background: var(--warning-color); color: white; border: none; padding: 0.6rem 1rem; border-radius: 5px; cursor: pointer; font-size: 0.9rem;">Deadlock Graph</button>
+                    </div>
+                    <canvas id="traceCanvas" width="700" height="400" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="traceStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+            <script>
+            let traceExample = 0;
+            (function() {
+                const canvas = document.getElementById('traceCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('traceStatus');
+
+                window.drawTrace = function() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    if (traceExample === 0) {
+                        drawBankExample();
+                    } else if (traceExample === 1) {
+                        drawTokenExample();
+                    } else {
+                        drawDeadlockExample();
+                    }
+                };
+
+                function drawBankExample() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Bank Transfer Example', 350, 30);
+
+                    const banks = [
+                        {name: 'A', x: 150, y: 150, balance: 50, recorded: true},
+                        {name: 'B', x: 350, y: 150, balance: 200, recorded: true},
+                        {name: 'C', x: 550, y: 150, balance: 300, recorded: true}
+                    ];
+
+                    banks.forEach(b => {
+                        ctx.fillStyle = '#27ae60';
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 3;
+                        ctx.fillRect(b.x - 50, b.y - 40, 100, 80);
+                        ctx.strokeRect(b.x - 50, b.y - 40, 100, 80);
+
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`Bank ${b.name}`, b.x, b.y - 10);
+                        ctx.font = 'bold 20px Arial';
+                        ctx.fillText(`$${b.balance}`, b.x, b.y + 15);
+                    });
+
+                    // Transfer in channel
+                    ctx.strokeStyle = '#e74c3c';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(200, 150);
+                    ctx.lineTo(500, 150);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.fillRect(320, 135, 60, 30);
+                    ctx.strokeStyle = '#c0392b';
+                    ctx.strokeRect(320, 135, 60, 30);
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.fillText('$50', 350, 153);
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Channel A→C: Transfer $50', 200, 250);
+
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#27ae60';
+                    ctx.fillText('Conservation Check: $50 + $200 + $300 + $50 = $600 ✓', 350, 300);
+
+                    status.innerHTML = `<strong>Bank Transfer Example</strong><br>
+                    A: $50 (recorded after sending), B: $200, C: $300 (recorded before receiving)<br>
+                    Channel A→C contains: $50 transfer in-flight<br>
+                    <strong style="color: var(--success-color);">Total conserved: $600</strong>`;
+                }
+
+                function drawTokenExample() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Token Counting Example', 350, 30);
+
+                    const procs = [
+                        {name: 'P', x: 150, y: 150, tokens: 1},
+                        {name: 'Q', x: 350, y: 150, tokens: 0},
+                        {name: 'R', x: 550, y: 150, tokens: 0}
+                    ];
+
+                    procs.forEach(p => {
+                        ctx.fillStyle = '#3498db';
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 45, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(p.name, p.x, p.y - 5);
+                        ctx.font = '14px Arial';
+                        ctx.fillText(`${p.tokens} token${p.tokens !== 1 ? 's' : ''}`, p.x, p.y + 15);
+                    });
+
+                    // Tokens in channel
+                    ctx.strokeStyle = '#f39c12';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(395, 150);
+                    ctx.lineTo(505, 150);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    ctx.fillStyle = '#f39c12';
+                    ctx.beginPath();
+                    ctx.arc(430, 150, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.arc(465, 150, 12, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Channel Q→R: 2 tokens in-flight', 220, 250);
+
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#27ae60';
+                    ctx.fillText('Conservation Check: 1 + 0 + 0 + 2 = 3 tokens ✓', 350, 300);
+
+                    status.innerHTML = `<strong>Token Counting Example</strong><br>
+                    P: 1 token, Q: 0 tokens (after sending), R: 0 tokens (before receiving)<br>
+                    Channel Q→R contains: 2 tokens in-flight<br>
+                    <strong style="color: var(--success-color);">Total conserved: 3 tokens</strong>`;
+                }
+
+                function drawDeadlockExample() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Deadlock Detection: Waits-For Graph', 350, 30);
+
+                    const nodes = [
+                        {id: 'P1', x: 350, y: 100},
+                        {id: 'P2', x: 500, y: 200},
+                        {id: 'P3', x: 350, y: 300},
+                        {id: 'P4', x: 200, y: 200}
+                    ];
+
+                    const edges = [[0,1],[1,2],[2,3],[3,0]];
+
+                    // Draw cycle edges
+                    edges.forEach(([i,j]) => {
+                        const from = nodes[i], to = nodes[j];
+                        const dx = to.x - from.x;
+                        const dy = to.y - from.y;
+                        const angle = Math.atan2(dy, dx);
+
+                        const x1 = from.x + Math.cos(angle) * 35;
+                        const y1 = from.y + Math.sin(angle) * 35;
+                        const x2 = to.x - Math.cos(angle) * 35;
+                        const y2 = to.y - Math.sin(angle) * 35;
+
+                        ctx.strokeStyle = '#e74c3c';
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.lineWidth = 4;
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+
+                        const headlen = 15;
+                        ctx.beginPath();
+                        ctx.moveTo(x2, y2);
+                        ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI/6), y2 - headlen * Math.sin(angle - Math.PI/6));
+                        ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI/6), y2 - headlen * Math.sin(angle + Math.PI/6));
+                        ctx.closePath();
+                        ctx.fill();
+                    });
+
+                    // Draw nodes
+                    nodes.forEach(n => {
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.arc(n.x, n.y, 30, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(n.id, n.x, n.y);
+                    });
+
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('CYCLE DETECTED: P1 → P2 → P3 → P4 → P1', 350, 360);
+
+                    status.innerHTML = `<strong>Deadlock Detection Example</strong><br>
+                    Snapshot captured waits-for graph with cycle:<br>
+                    P1 waits for P2, P2 waits for P3, P3 waits for P4, P4 waits for P1<br>
+                    <strong style="color: var(--accent-color);">Deadlock detected! (Stable predicate)</strong>`;
+                }
+
+                drawTrace();
+            })();
+            </script>
+        </section>
+
+        <section id="applications-and-use-cases">
+            <h2>Applications and Use Cases</h2>
+
+            <h3>Application 1: Apache Flink (Stream Processing)</h3>
+
+            <p><strong>Context:</strong> Apache Flink processes infinite streams of data across many machines.</p>
+
+            <p><strong>Problem:</strong> How to checkpoint a continuously running stream processing job?</p>
+
+            <p><strong>Solution:</strong> Use variant of Chandy-Lamport!</p>
+
+            <p><strong>How it works:</strong></p>
+            <ol>
+                <li><strong>Markers (barriers)</strong> are injected into data streams</li>
+                <li>When operator sees barrier on all input channels, it snapshots its state</li>
+                <li>Operator forwards barrier to downstream operators</li>
+                <li>Creates consistent checkpoint of entire dataflow</li>
+            </ol>
+
+            <p><strong>Why this matters:</strong></p>
+            <ul>
+                <li>If job crashes, restart from last checkpoint</li>
+                <li>Don't reprocess entire stream from beginning</li>
+                <li>Exactly-once processing guarantees</li>
+            </ul>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>Stream: [data] [data] [data] [BARRIER] [data] [data]
+
+Operator sees barrier → snapshot state → forward barrier</code></pre>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Barriers = Markers for Streams"
+            </div>
+
+            <h3>Application 2: Distributed Debugging</h3>
+
+            <p><strong>Scenario:</strong> Debugging race condition in distributed system</p>
+
+            <p><strong>Problem:</strong></p>
+            <ul>
+                <li>Invariant: "Any two variables xi and xj must not differ by more than δ"</li>
+                <li>Bug report: Sometimes invariant violated</li>
+                <li>How to reproduce and debug?</li>
+            </ul>
+
+            <p><strong>Solution:</strong></p>
+            <ol>
+                <li>Take periodic snapshots</li>
+                <li>Check invariant in each snapshot</li>
+                <li>When violation found, have consistent state showing the bug</li>
+                <li>Can examine entire system state at moment of violation</li>
+            </ol>
+
+            <p><strong>Without snapshots:</strong></p>
+            <ul>
+                <li>Variables change continuously</li>
+                <li>Can't examine xi and xj "at the same time"</li>
+                <li>Race condition might not reproduce</li>
+            </ul>
+
+            <p><strong>With snapshots:</strong></p>
+            <ul>
+                <li>Capture consistent state</li>
+                <li>Definitively shows: xi = 100, xj = 200, δ = 50</li>
+                <li>Violation: |100 - 200| = 100 &gt; 50</li>
+                <li>Can trace back through recorded states to find root cause</li>
+            </ul>
+
+            <h3>Application 3: Distributed Garbage Collection</h3>
+
+            <p><strong>Problem:</strong> Identify objects with no references in distributed system</p>
+
+            <p><strong>Challenge:</strong></p>
+            <ul>
+                <li>Objects and references spread across machines</li>
+                <li>References change constantly</li>
+                <li>Need consistent view of "reachability graph"</li>
+            </ul>
+
+            <p><strong>Solution:</strong></p>
+            <ol>
+                <li>Take distributed snapshot</li>
+                <li>Snapshot captures all object locations and all references</li>
+                <li>Build reachability graph from snapshot</li>
+                <li>Any object unreachable from roots = garbage</li>
+                <li>Can safely delete</li>
+            </ol>
+
+            <div class="callout-warning">
+                <strong>Why consistent snapshot matters:</strong>
+                <ul>
+                    <li>Inconsistent: might delete object that actually has reference (data loss!)</li>
+                    <li>Consistent: safe to delete unreachable objects</li>
+                </ul>
+            </div>
+
+            <h3>Application 4: Distributed Termination Detection</h3>
+
+            <p><strong>Problem:</strong> Distributed computation across many workers. How to know when it's finished?</p>
+
+            <p><strong>Challenges:</strong></p>
+            <ul>
+                <li>Some workers idle, but messages with new work might be in flight</li>
+                <li>Need to know: all workers idle AND no messages in transit</li>
+            </ul>
+
+            <p><strong>Solution:</strong></p>
+            <ol>
+                <li>Take distributed snapshot</li>
+                <li>Check if:
+                    <ul>
+                        <li>All processes in "idle" state</li>
+                        <li>All channels empty (no messages in transit)</li>
+                    </ul>
+                </li>
+                <li>If both true in snapshot: TERMINATED!</li>
+            </ol>
+
+            <p><strong>Why snapshot needed:</strong></p>
+            <ul>
+                <li>Can't just check "all processes idle" at different times</li>
+                <li>Message might be sent after you check one process, before you check another</li>
+                <li>Snapshot gives consistent global view</li>
+            </ul>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>Incorrect (checking at different times):
+Time 0: Check P1 - idle ✓
+Time 1: P1 sends work to P2
+Time 2: Check P2 - idle ✓
+Conclusion: Terminated? NO! Message in flight.
+
+Correct (snapshot):
+Snapshot shows: P1 idle, P2 idle, no messages in channels
+Conclusion: Terminated ✓</code></pre>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Real-World Applications</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button onclick="appType = 0; drawApp()" style="background: var(--info-color); color: white; border: none; padding: 0.6rem 0.8rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem;">Flink/Streaming</button>
+                        <button onclick="appType = 1; drawApp()" style="background: var(--warning-color); color: white; border: none; padding: 0.6rem 0.8rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem;">Debugging</button>
+                        <button onclick="appType = 2; drawApp()" style="background: var(--success-color); color: white; border: none; padding: 0.6rem 0.8rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem;">GC</button>
+                        <button onclick="appType = 3; drawApp()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 0.8rem; border-radius: 5px; cursor: pointer; font-size: 0.85rem;">Termination</button>
+                    </div>
+                    <canvas id="appCanvas" width="700" height="350" style="border: 2px solid var(--border-color); border-radius: 8px; max-width: 100%; display: block; margin: 0 auto;"></canvas>
+                    <div id="appStatus" style="margin-top: 1rem; padding: 1rem; background: var(--code-bg); border-radius: 5px; font-size: 0.85rem;"></div>
+                </div>
+            </div>
+            <script>
+            let appType = 0;
+            (function() {
+                const canvas = document.getElementById('appCanvas');
+                const ctx = canvas.getContext('2d');
+                const status = document.getElementById('appStatus');
+
+                window.drawApp = function() {
+                    ctx.fillStyle = '#ecf0f1';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    if (appType === 0) drawFlink();
+                    else if (appType === 1) drawDebug();
+                    else if (appType === 2) drawGC();
+                    else drawTermination();
+                };
+
+                function drawFlink() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Apache Flink: Stream Processing with Barriers', 350, 25);
+
+                    const nodes = [{x:150,y:150,name:'Source'},{x:350,y:150,name:'Map'},{x:550,y:150,name:'Sink'}];
+
+                    nodes.forEach((n,i) => {
+                        ctx.fillStyle = '#16a085';
+                        ctx.fillRect(n.x-40, n.y-30, 80, 60);
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(n.x-40, n.y-30, 80, 60);
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(n.name, n.x, n.y);
+
+                        if (i < nodes.length-1) {
+                            ctx.strokeStyle = '#3498db';
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(n.x+40, n.y);
+                            ctx.lineTo(nodes[i+1].x-40, nodes[i+1].y);
+                            ctx.stroke();
+
+                            const mx = (n.x+40 + nodes[i+1].x-40)/2;
+                            ctx.fillStyle = '#f39c12';
+                            ctx.beginPath();
+                            ctx.arc(mx, n.y, 8, 0, Math.PI*2);
+                            ctx.fill();
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = '10px Arial';
+                            ctx.fillText('barrier', mx, n.y+20);
+                        }
+                    });
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '13px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Data stream: [d1] [d2] [d3] [BARRIER] [d4] [d5]...', 80, 250);
+                    ctx.fillText('When operator receives barrier on all inputs:', 80, 275);
+                    ctx.fillText('  1. Snapshot local state', 80, 295);
+                    ctx.fillText('  2. Forward barrier downstream', 80, 315);
+
+                    status.innerHTML = `<strong>Apache Flink Stream Processing</strong><br>
+                    Uses Chandy-Lamport barriers for checkpointing infinite streams.<br>
+                    Enables exactly-once processing and fault recovery without stopping the stream!`;
+                }
+
+                function drawDebug() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Distributed Debugging: Invariant Checking', 350, 25);
+
+                    const procs = [{x:150,y:120,name:'P1',x1:100},{x:350,y:120,name:'P2',x2:105},{x:550,y:120,name:'P3',x3:95}];
+
+                    procs.forEach(p => {
+                        ctx.fillStyle = '#f39c12';
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 35, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 14px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(p.name, p.x, p.y-5);
+                        const val = p.x1 || p.x2 || p.x3;
+                        ctx.fillText(`x=${val}`, p.x, p.y+12);
+                    });
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Invariant: |xi - xj| ≤ 10 for all i,j', 350, 200);
+
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.fillText('Snapshot Check: |100-95| = 5 ✓, |105-95| = 10 ✓', 350, 250);
+                    ctx.fillStyle = '#27ae60';
+                    ctx.fillText('Invariant HOLDS!', 350, 280);
+
+                    status.innerHTML = `<strong>Distributed Debugging</strong><br>
+                    Snapshot captures consistent global state for invariant checking.<br>
+                    Can detect race conditions and verify system properties!`;
+                }
+
+                function drawGC() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Distributed Garbage Collection', 350, 25);
+
+                    const objs = [
+                        {x:150,y:100,id:'A',refs:['B']},
+                        {x:350,y:100,id:'B',refs:['C']},
+                        {x:550,y:100,id:'C',refs:[]},
+                        {x:250,y:220,id:'D',refs:['E'],garbage:true},
+                        {x:450,y:220,id:'E',refs:[],garbage:true}
+                    ];
+
+                    ctx.strokeStyle = '#3498db';
+                    ctx.lineWidth = 2;
+                    [[0,1],[1,2]].forEach(([i,j]) => {
+                        ctx.beginPath();
+                        ctx.moveTo(objs[i].x+20, objs[i].y);
+                        ctx.lineTo(objs[j].x-20, objs[j].y);
+                        ctx.stroke();
+                    });
+
+                    ctx.strokeStyle = '#95a5a6';
+                    ctx.setLineDash([5,5]);
+                    ctx.beginPath();
+                    ctx.moveTo(objs[3].x+20, objs[3].y);
+                    ctx.lineTo(objs[4].x-20, objs[4].y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    objs.forEach(o => {
+                        ctx.fillStyle = o.garbage ? '#e74c3c' : '#27ae60';
+                        ctx.beginPath();
+                        ctx.arc(o.x, o.y, 25, 0, Math.PI*2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(o.id, o.x, o.y);
+                    });
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Root → A → B → C (reachable)', 270, 60);
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.fillText('D → E (unreachable = GARBAGE)', 350, 280);
+
+                    status.innerHTML = `<strong>Distributed Garbage Collection</strong><br>
+                    Snapshot captures consistent reference graph.<br>
+                    Objects unreachable from roots can be safely deleted!`;
+                }
+
+                function drawTermination() {
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Distributed Termination Detection', 350, 25);
+
+                    const workers = [{x:150,y:150,idle:true},{x:350,y:150,idle:true},{x:550,y:150,idle:true}];
+
+                    workers.forEach((w,i) => {
+                        ctx.fillStyle = w.idle ? '#95a5a6' : '#3498db';
+                        ctx.fillRect(w.x-40, w.y-30, 80, 60);
+                        ctx.strokeStyle = '#2c3e50';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(w.x-40, w.y-30, 80, 60);
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 13px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`Worker ${i+1}`, w.x, w.y-5);
+                        ctx.font = '11px Arial';
+                        ctx.fillText(w.idle ? 'IDLE' : 'ACTIVE', w.x, w.y+12);
+                    });
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.font = '13px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Message queues: EMPTY', 350, 240);
+
+                    ctx.fillStyle = '#27ae60';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.fillText('Snapshot: All idle + No messages → TERMINATED!', 350, 290);
+
+                    status.innerHTML = `<strong>Distributed Termination Detection</strong><br>
+                    Snapshot checks: all processes idle AND all channels empty.<br>
+                    Both conditions must hold in consistent global state!`;
+                }
+
+                drawApp();
+            })();
+            </script>
+        </section>
+
+        <section id="exam-tips-and-memory-aids">
+            <h2>Exam Tips and Memory Aids</h2>
+
+            <h3>Concepts You Must Know Cold</h3>
+
+            <h4>1. Consistent Cut Definition</h4>
+            <p>"For every event e in cut, if f → e, then f is also in cut"</p>
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "No effects without causes" or "Causes before effects"<br>
+                <strong>Quick Test:</strong> If you see a receive event in the cut, the corresponding send must also be in the cut.
+            </div>
+
+            <h4>2. Chandy-Lamport Marker Rules</h4>
+            <p><strong>First Marker Rule: "Record and Relay"</strong></p>
+            <ul>
+                <li>Record local state</li>
+                <li>Send markers to all neighbors</li>
+                <li>Mark sender's channel as empty</li>
+            </ul>
+
+            <p><strong>Subsequent Marker Rule: "Close Channel"</strong></p>
+            <ul>
+                <li>Don't record again</li>
+                <li>Channel state = messages between first marker and this marker</li>
+            </ul>
+
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "First = Record & Relay, Rest = Record Channel"
+            </div>
+
+            <h4>3. Why FIFO Matters</h4>
+            <p>FIFO ensures markers act as barriers separating "before snapshot" messages from "after snapshot" messages.</p>
+            <p><strong>Without FIFO:</strong> Marker might arrive before messages sent before it, causing inconsistency.</p>
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "FIFO = Fence In, Fence Out" (messages before/after marker)
+            </div>
+
+            <h4>4. Channel State Recording</h4>
+            <p>Messages recorded in channel C (from j to i) are those:</p>
+            <ul>
+                <li>Received by process i</li>
+                <li>After i recorded its state</li>
+                <li>Before i received marker from j</li>
+            </ul>
+            <div class="callout-success">
+                <strong>Memory Aid:</strong> "Between my record and your marker"
+            </div>
+
+            <h3>Common Exam Question Types</h3>
+
+            <h4>Type 1: Identify Consistent Cut</h4>
+            <p>Given a spacetime diagram with events and messages, identify which cuts are consistent.</p>
+
+            <p><strong>Strategy:</strong></p>
+            <ol>
+                <li>For each cut, check every message</li>
+                <li>If receive is in cut, check if send is in cut</li>
+                <li>If send in cut but receive not in cut, check if message is recorded in channel state</li>
+                <li>Any receive without send = inconsistent (orphan message)</li>
+            </ol>
+
+            <p><strong>Example Question:</strong></p>
+            <pre><code>Process 1: e1 -> e2(send m) -> e3
+                  |
+Process 2: e4 -> e5(receive m) -> e6
+
+Cut A: {e1, e2, e4, e5}
+Is this consistent?
+
+Answer: YES.
+- e2 (send m) is in cut
+- e5 (receive m) is in cut
+- Both send and receive included, consistent!
+
+Cut B: {e1, e4, e5}
+Is this consistent?
+
+Answer: NO.
+- e5 (receive m) is in cut
+- e2 (send m) is NOT in cut
+- Orphan message! Inconsistent.</code></pre>
+
+            <h4>Type 2: Trace Chandy-Lamport Execution</h4>
+            <p>Given system state and sequence of events, trace what each process records.</p>
+
+            <p><strong>Strategy:</strong></p>
+            <ol>
+                <li>Track each process's has_recorded flag</li>
+                <li>Track marker_received[j] for each channel</li>
+                <li>For each event:
+                    <ul>
+                        <li>If first marker: record state, send markers</li>
+                        <li>If subsequent marker: close channel recording</li>
+                        <li>If normal message and recording: add to channel state</li>
+                    </ul>
+                </li>
+                <li>Final snapshot = all recorded states + channel states</li>
+            </ol>
+
+            <h4>Type 3: Conservation Check</h4>
+            <p>Given a snapshot, verify it's consistent by checking conservation property.</p>
+
+            <p><strong>Strategy:</strong></p>
+            <ol>
+                <li>Sum up all local states</li>
+                <li>Add all "in transit" items from channel states</li>
+                <li>Check if total matches expected invariant</li>
+            </ol>
+
+            <p><strong>Example:</strong></p>
+            <pre><code>Bank system, expect total = $1000
+
+Snapshot:
+  A: $200
+  B: $300
+  C: $400
+  Channel A→B: $50
+  Channel B→C: $25
+
+Total: $200 + $300 + $400 + $50 + $25 = $975
+
+This is INCONSISTENT! $25 missing.</code></pre>
+
+            <h4>Type 4: Stable vs. Transient Predicates</h4>
+            <p>Identify whether a predicate is stable or transient, and what can be concluded from snapshot.</p>
+
+            <p><strong>Stable Examples:</strong></p>
+            <ul>
+                <li>Deadlock exists</li>
+                <li>Termination detected</li>
+                <li>File deleted</li>
+                <li>Process crashed</li>
+            </ul>
+
+            <p><strong>Transient Examples:</strong></p>
+            <ul>
+                <li>"Process has exactly 3 tokens"</li>
+                <li>"Queue has less than 10 items"</li>
+                <li>"Variable x &gt; 100"</li>
+            </ul>
+
+            <p><strong>Strategy:</strong></p>
+            <ul>
+                <li>Stable: once true, stays true</li>
+                <li>If snapshot shows stable predicate true → definitely true in real system</li>
+                <li>If snapshot shows transient predicate true → might be true, might not (system evolved)</li>
+            </ul>
+
+            <div class="visualization" style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.1), rgba(155, 89, 182, 0.1)); border-radius: 10px; padding: 2rem; margin: 2rem 0;">
+                <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Exam Question Practice</h3>
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                        <select id="questionType" onchange="loadQuestion()" style="padding: 0.6rem 1rem; border-radius: 5px; border: 2px solid var(--border-color); font-size: 0.9rem; cursor: pointer;">
+                            <option value="0">Q1: Cut Consistency</option>
+                            <option value="1">Q2: Conservation Check</option>
+                            <option value="2">Q3: Predicate Type</option>
+                            <option value="3">Q4: Algorithm Trace</option>
+                        </select>
+                        <button onclick="checkAnswer()" style="background: var(--success-color); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 5px; cursor: pointer; font-weight: 600;">Check Answer</button>
+                        <button onclick="loadQuestion()" style="background: var(--secondary-color); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 5px; cursor: pointer;">Next Question</button>
+                        <span id="score" style="margin-left: auto; font-weight: bold; color: var(--primary-color);"></span>
+                    </div>
+                    <div id="questionArea" style="padding: 1.5rem; background: var(--code-bg); border-radius: 8px; min-height: 200px;">
+                        <canvas id="examCanvas" width="700" height="250" style="border: 1px solid var(--border-color); border-radius: 5px; max-width: 100%; display: block; margin: 1rem auto;"></canvas>
+                        <div id="questionText" style="font-size: 1rem; margin-bottom: 1rem;"></div>
+                        <div id="answerOptions"></div>
+                    </div>
+                    <div id="feedback" style="margin-top: 1rem; padding: 1rem; border-radius: 5px; display: none;"></div>
+                </div>
+            </div>
+            <script>
+            (function() {
+                const canvas = document.getElementById('examCanvas');
+                const ctx = canvas.getContext('2d');
+                let score = 0, attempts = 0, currentAnswer = null;
+
+                const questions = {
+                    0: { // Cut consistency
+                        draw: () => {
+                            ctx.fillStyle = '#ecf0f1';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.strokeStyle = '#2c3e50';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.moveTo(50, 80);
+                            ctx.lineTo(650, 80);
+                            ctx.moveTo(50, 170);
+                            ctx.lineTo(650, 170);
+                            ctx.stroke();
+
+                            ctx.fillStyle = '#3498db';
+                            [[100,80],[250,80],[400,80]].forEach(([x,y]) => {
+                                ctx.beginPath();
+                                ctx.arc(x, y, 12, 0, Math.PI*2);
+                                ctx.fill();
+                            });
+                            [[100,170],[400,170],[550,170]].forEach(([x,y]) => {
+                                ctx.beginPath();
+                                ctx.arc(x, y, 12, 0, Math.PI*2);
+                                ctx.fill();
+                            });
+
+                            ctx.strokeStyle = '#e74c3c';
+                            ctx.lineWidth = 2;
+                            ctx.setLineDash([5,5]);
+                            ctx.beginPath();
+                            ctx.moveTo(250, 80);
+                            ctx.lineTo(400, 170);
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = '12px Arial';
+                            ctx.fillText('P1', 30, 85);
+                            ctx.fillText('P2', 30, 175);
+                            ctx.fillText('send', 250, 65);
+                            ctx.fillText('recv', 400, 190);
+
+                            ctx.strokeStyle = '#27ae60';
+                            ctx.lineWidth = 3;
+                            ctx.setLineDash([10,5]);
+                            ctx.beginPath();
+                            ctx.moveTo(450, 70);
+                            ctx.lineTo(450, 90);
+                            ctx.lineTo(450, 160);
+                            ctx.lineTo(450, 180);
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+                            ctx.fillStyle = '#27ae60';
+                            ctx.font = 'bold 14px Arial';
+                            ctx.fillText('Cut Line', 460, 125);
+                        },
+                        text: 'Is the cut shown (green dashed line) consistent?',
+                        options: ['Yes, consistent', 'No, inconsistent'],
+                        correct: 0,
+                        explanation: 'CORRECT! Both send and receive are included in the cut, so it respects causality.'
+                    },
+                    1: { // Conservation
+                        draw: () => {
+                            ctx.fillStyle = '#ecf0f1';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = 'bold 14px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('Snapshot State', 350, 30);
+
+                            [[150,'A',200],[350,'B',300],[550,'C',450]].forEach(([x,name,bal]) => {
+                                ctx.fillStyle = '#3498db';
+                                ctx.fillRect(x-40, 80, 80, 60);
+                                ctx.strokeStyle = '#2c3e50';
+                                ctx.lineWidth = 2;
+                                ctx.strokeRect(x-40, 80, 80, 60);
+                                ctx.fillStyle = 'white';
+                                ctx.font = 'bold 14px Arial';
+                                ctx.textAlign = 'center';
+                                ctx.fillText(name, x, 100);
+                                ctx.fillText(`$${bal}`, x, 120);
+                            });
+
+                            ctx.fillStyle = '#e74c3c';
+                            ctx.fillRect(240, 95, 50, 30);
+                            ctx.strokeStyle = '#c0392b';
+                            ctx.strokeRect(240, 95, 50, 30);
+                            ctx.fillStyle = 'white';
+                            ctx.fillText('$50', 265, 113);
+
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = '13px Arial';
+                            ctx.textAlign = 'left';
+                            ctx.fillText('Channel A→B: $50 in transit', 200, 180);
+                            ctx.fillText('Expected total: $1000', 200, 210);
+                        },
+                        text: 'Calculate the total money in this snapshot. Is it consistent?',
+                        options: ['$1000 - Consistent', '$950 - Inconsistent', '$1050 - Inconsistent'],
+                        correct: 0,
+                        explanation: 'CORRECT! $200 + $300 + $450 + $50 (in channel) = $1000. Total is conserved!'
+                    },
+                    2: { // Predicate type
+                        draw: () => {
+                            ctx.fillStyle = '#ecf0f1';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = '16px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('Which type of predicate is this?', 350, 80);
+                            ctx.font = 'bold 20px Arial';
+                            ctx.fillStyle = '#e74c3c';
+                            ctx.fillText('"Deadlock exists in the system"', 350, 140);
+                        },
+                        text: '',
+                        options: ['Stable predicate', 'Transient predicate'],
+                        correct: 0,
+                        explanation: 'CORRECT! Deadlock is stable - once it exists, it persists. If detected in a snapshot, it definitely exists in the real system!'
+                    },
+                    3: { // Algorithm trace
+                        draw: () => {
+                            ctx.fillStyle = '#ecf0f1';
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = 'bold 14px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('P1 receives its FIRST marker from P2', 350, 40);
+
+                            const p1 = {x: 200, y: 120, name: 'P1'};
+                            const p2 = {x: 500, y: 120, name: 'P2'};
+
+                            [p1, p2].forEach(p => {
+                                ctx.fillStyle = '#3498db';
+                                ctx.beginPath();
+                                ctx.arc(p.x, p.y, 35, 0, Math.PI*2);
+                                ctx.fill();
+                                ctx.strokeStyle = '#2c3e50';
+                                ctx.lineWidth = 2;
+                                ctx.stroke();
+                                ctx.fillStyle = 'white';
+                                ctx.font = 'bold 16px Arial';
+                                ctx.fillText(p.name, p.x, p.y);
+                            });
+
+                            ctx.strokeStyle = '#f39c12';
+                            ctx.fillStyle = '#f39c12';
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(465, 120);
+                            ctx.lineTo(235, 120);
+                            ctx.stroke();
+                            const headlen = 12;
+                            ctx.beginPath();
+                            ctx.moveTo(235, 120);
+                            ctx.lineTo(247, 114);
+                            ctx.lineTo(247, 126);
+                            ctx.closePath();
+                            ctx.fill();
+
+                            ctx.fillStyle = '#2c3e50';
+                            ctx.font = '14px Arial';
+                            ctx.fillText('Marker from P2', 350, 100);
+                        },
+                        text: 'What should P1 do? (Chandy-Lamport algorithm)',
+                        options: [
+                            'Record state, send markers, mark channel[P2] empty',
+                            'Just record the channel state',
+                            'Ignore the marker',
+                            'Send marker back to P2 only'
+                        ],
+                        correct: 0,
+                        explanation: 'CORRECT! First marker rule: Record local state, send markers to ALL neighbors, mark sender\'s channel as empty.'
+                    }
+                };
+
+                window.loadQuestion = function() {
+                    const type = parseInt(document.getElementById('questionType').value);
+                    const q = questions[type];
+
+                    q.draw();
+                    document.getElementById('questionText').innerHTML = `<strong>${q.text}</strong>`;
+
+                    let optionsHTML = '<div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 500px;">';
+                    q.options.forEach((opt, i) => {
+                        optionsHTML += `<label style="padding: 0.75rem; background: white; border: 2px solid var(--border-color); border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="radio" name="answer" value="${i}" style="cursor: pointer;"> ${opt}
+                        </label>`;
+                    });
+                    optionsHTML += '</div>';
+                    document.getElementById('answerOptions').innerHTML = optionsHTML;
+                    document.getElementById('feedback').style.display = 'none';
+                    currentAnswer = type;
+                };
+
+                window.checkAnswer = function() {
+                    const selected = document.querySelector('input[name="answer"]:checked');
+                    if (!selected) {
+                        alert('Please select an answer!');
+                        return;
+                    }
+
+                    const type = currentAnswer;
+                    const q = questions[type];
+                    const userAnswer = parseInt(selected.value);
+                    attempts++;
+
+                    const feedback = document.getElementById('feedback');
+                    if (userAnswer === q.correct) {
+                        score++;
+                        feedback.style.background = 'rgba(39, 174, 96, 0.1)';
+                        feedback.style.border = '2px solid var(--success-color)';
+                        feedback.innerHTML = `<strong style="color: var(--success-color);">✓ ${q.explanation}</strong>`;
+                    } else {
+                        feedback.style.background = 'rgba(231, 76, 60, 0.1)';
+                        feedback.style.border = '2px solid var(--accent-color)';
+                        feedback.innerHTML = `<strong style="color: var(--accent-color);">✗ Incorrect.</strong><br>${q.explanation}`;
+                    }
+                    feedback.style.display = 'block';
+
+                    document.getElementById('score').textContent = `Score: ${score}/${attempts}`;
+                };
+
+                loadQuestion();
+                document.getElementById('score').textContent = `Score: ${score}/${attempts}`;
+            })();
+            </script>
+
+            <h3>Memory Aids and Mnemonics</h3>
+
+            <div class="callout-success">
+                <h4>The Five Applications: "GDD-CT"</h4>
+                <ul>
+                    <li><strong>G</strong>arbage collection</li>
+                    <li><strong>D</strong>eadlock detection</li>
+                    <li><strong>D</strong>ebugging</li>
+                    <li><strong>C</strong>heckpointing</li>
+                    <li><strong>T</strong>ermination detection</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Chandy-Lamport: "RRR"</h4>
+                <ul>
+                    <li><strong>R</strong>eceive first marker: <strong>R</strong>ecord state & <strong>R</strong>elay markers</li>
+                    <li>Receive other markers: Record channel (close recording)</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Consistent Cut: "No Orphan Messages"</h4>
+                <ul>
+                    <li>Orphan message = receive without send</li>
+                    <li>Consistent cut = no orphans</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>FIFO Channels: "Markers Make Fences"</h4>
+                <ul>
+                    <li>Marker separates before/after messages</li>
+                    <li>FIFO ensures fence works correctly</li>
+                </ul>
+            </div>
+
+            <div class="callout-success">
+                <h4>Channel State: "Between Me and You"</h4>
+                <ul>
+                    <li>Between when I recorded</li>
+                    <li>And when I got marker from you</li>
+                </ul>
+            </div>
+
+            <h3>Common Mistakes to Avoid</h3>
+
+            <div class="callout-warning">
+                <h4>Mistake 1: Thinking processes stop</h4>
+                <p><strong>NO!</strong> Processes continue running during snapshot. They don't pause.</p>
+                <p><strong>Correct:</strong> Snapshot captures a consistent state that could have occurred, not a state that actually occurred at one physical instant.</p>
+            </div>
+
+            <div class="callout-warning">
+                <h4>Mistake 2: Forgetting channel states</h4>
+                <p>Snapshot = local states + channel states</p>
+                <p><strong>Don't forget:</strong> Messages in transit are part of the global state!</p>
+            </div>
+
+            <div class="callout-warning">
+                <h4>Mistake 3: Wrong channel direction</h4>
+                <p>Process i records state of INCOMING channels (messages coming TO i).</p>
+                <p><strong>Wrong:</strong> "P1 records channel P1→P2"<br>
+                <strong>Right:</strong> "P1 records channel P2→P1"</p>
+            </div>
+
+            <div class="callout-warning">
+                <h4>Mistake 4: Non-FIFO assumptions</h4>
+                <p>The algorithm requires FIFO. If channels can reorder:</p>
+                <ul>
+                    <li>Markers might arrive before earlier messages</li>
+                    <li>Snapshot could be inconsistent</li>
+                    <li>Algorithm doesn't work!</li>
+                </ul>
+            </div>
+
+            <div class="callout-warning">
+                <h4>Mistake 5: Confusing happens-before with physical time</h4>
+                <p>Consistent cut uses happens-before (→), not physical time.</p>
+                <p><strong>Wrong:</strong> "Event at 3:00 PM must be before event at 3:01 PM"<br>
+                <strong>Right:</strong> "If a → b, then a must be in cut if b is in cut" (regardless of physical time)</p>
+            </div>
+
+            <h3>Quick Reference Cheat Sheet</h3>
+
+            <h4>Chandy-Lamport Algorithm Summary:</h4>
+            <pre><code>INITIATE SNAPSHOT:
+  - Record local state
+  - Send marker to all neighbors
+
+ON FIRST MARKER from j:
+  - Record local state
+  - channel_state[j] = empty
+  - Send marker to all neighbors
+
+ON SUBSEQUENT MARKER from j:
+  - channel_state[j] = messages received from j
+                       between recording and this marker
+
+ON NORMAL MESSAGE from j:
+  - If (recorded && !marker_received[j]):
+      add message to channel_state[j]
+  - Process message normally
+
+DONE WHEN:
+  - Recorded local state
+  - Received marker from all incoming channels</code></pre>
+
+            <h4>Consistent Cut Test:</h4>
+            <pre><code>For every message m:
+  send(m) in cut AND receive(m) in cut → OK
+  send(m) in cut AND receive(m) NOT in cut → m must be in channel state
+  send(m) NOT in cut AND receive(m) in cut → INCONSISTENT! (orphan)
+  send(m) NOT in cut AND receive(m) NOT in cut → OK (after snapshot)</code></pre>
+
+            <h4>Predicate Detection:</h4>
+            <pre><code>STABLE PREDICATE (once true, stays true):
+  - If TRUE in snapshot → definitely TRUE in system
+  - If FALSE in snapshot → unknown (might become true later)
+
+TRANSIENT PREDICATE (can flip):
+  - If TRUE in snapshot → maybe TRUE in system (might have changed)
+  - If FALSE in snapshot → maybe FALSE in system (might have changed)</code></pre>
+
+            <h3>Practice Problems</h3>
+
+            <div class="callout-info">
+                <h4>Problem 1</h4>
+                <p>Three processes (A, B, C). A sends message to B, then initiates snapshot. B receives message, then receives marker. What is B's recorded state?</p>
+                <details>
+                    <summary><strong>Click to see answer</strong></summary>
+                    <p>B's recorded state includes the processed message from A.</p>
+                    <p><strong>Reason:</strong> FIFO ensures B receives message before marker. B processes message normally. When B receives marker (first marker), B records current state (after processing message).</p>
+                    <p>B's channel_state[A→B] = empty (first marker from A).</p>
+                </details>
+            </div>
+
+            <div class="callout-info">
+                <h4>Problem 2</h4>
+                <p>Is the following cut consistent?</p>
+                <pre><code>Process P: [e1: send m] -> [e2: local]
+              |
+Process Q:    |-> [e3: receive m]
+
+Cut = {e1, e2}</code></pre>
+                <details>
+                    <summary><strong>Click to see answer</strong></summary>
+                    <p><strong>INCONSISTENT.</strong></p>
+                    <p><strong>Reason:</strong> e3 (receive m) is NOT in cut, but e1 (send m) IS in cut. This means message m was sent but not received in the snapshot, and it's not recorded in any channel state. The message "disappeared."</p>
+                    <p>For consistency, either:</p>
+                    <ul>
+                        <li>Both e1 and e3 in cut (message sent and received), OR</li>
+                        <li>Only e1 in cut, with m recorded in channel state P→Q</li>
+                    </ul>
+                </details>
+            </div>
+
+            <div class="callout-info">
+                <h4>Problem 3</h4>
+                <p>In Chandy-Lamport, why must channels be FIFO?</p>
+                <details>
+                    <summary><strong>Click to see answer</strong></summary>
+                    <p>FIFO ensures markers act as barriers. All messages sent before marker arrive before it; all messages sent after marker arrive after it.</p>
+                    <p><strong>Without FIFO:</strong> Message m1 sent before marker might arrive after marker, causing process to incorrectly record m1 as "in flight" when it was actually "before snapshot."</p>
+                    <p>This breaks consistency!</p>
+                </details>
+            </div>
+
+            <div class="callout-info">
+                <h4>Problem 4</h4>
+                <p>Four processes use Chandy-Lamport. How many marker messages total?</p>
+                <details>
+                    <summary><strong>Click to see answer</strong></summary>
+                    <p><strong>Depends on topology!</strong></p>
+                    <p>If fully connected (every process connects to every other):</p>
+                    <ul>
+                        <li>Each process sends markers to 3 others</li>
+                        <li>4 processes × 3 markers = 12 marker messages</li>
+                    </ul>
+                    <p>If ring topology (each connects to one neighbor):</p>
+                    <ul>
+                        <li>Each process sends marker to 1 neighbor</li>
+                        <li>4 processes × 1 marker = 4 marker messages</li>
+                    </ul>
+                    <p><strong>Key insight:</strong> Number of markers = number of edges in the graph (each edge carries one marker when snapshot propagates).</p>
+                </details>
+            </div>
+
+            <div class="callout-info">
+                <h4>Problem 5</h4>
+                <p>Can two processes initiate snapshots simultaneously? What happens?</p>
+                <details>
+                    <summary><strong>Click to see answer</strong></summary>
+                    <p><strong>YES!</strong> Multiple snapshots can run concurrently.</p>
+                    <p><strong>Solution:</strong> Use "colors" or "snapshot IDs" to distinguish snapshots.</p>
+                    <p><strong>Example:</strong></p>
+                    <ul>
+                        <li>P1 initiates "red" snapshot</li>
+                        <li>P2 initiates "blue" snapshot</li>
+                        <li>Markers carry color: "red marker" vs. "blue marker"</li>
+                        <li>Each process maintains separate state for each snapshot</li>
+                        <li>channel_state_red[j], channel_state_blue[j], etc.</li>
+                    </ul>
+                    <p>This allows multiple snapshots to coexist without interference!</p>
+                </details>
+            </div>
+
+            <h3>Final Thoughts</h3>
+
+            <div class="callout-success">
+                <h4>What you absolutely must know for the exam:</h4>
+                <ol>
+                    <li><strong>What a consistent cut is:</strong>
+                        <ul>
+                            <li>No effects without causes</li>
+                            <li>Respects happens-before relationship</li>
+                            <li>Test: every receive must have its send in cut (or message in channel state)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Chandy-Lamport algorithm:</strong>
+                        <ul>
+                            <li>Marker-based protocol</li>
+                            <li>First marker: record state, send markers, mark channel empty</li>
+                            <li>Subsequent markers: close channel recording</li>
+                            <li>FIFO requirement for correctness</li>
+                        </ul>
+                    </li>
+                    <li><strong>Why we need snapshots:</strong>
+                        <ul>
+                            <li>GDD-CT (Garbage, Deadlock, Debugging, Checkpointing, Termination)</li>
+                            <li>Can't just "stop the world" in distributed systems</li>
+                            <li>Need consistent global state for reasoning about system</li>
+                        </ul>
+                    </li>
+                    <li><strong>How to trace execution:</strong>
+                        <ul>
+                            <li>Track has_recorded and marker_received flags</li>
+                            <li>Carefully track message vs. marker arrival order (FIFO!)</li>
+                            <li>Record channel states between "my record" and "your marker"</li>
+                        </ul>
+                    </li>
+                    <li><strong>Stable vs. transient predicates:</strong>
+                        <ul>
+                            <li>Stable: once true, stays true (deadlock, termination)</li>
+                            <li>Transient: can change (token count, queue size)</li>
+                            <li>Implications for what snapshot tells you</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <div class="callout-info">
+                <h4>The Big Picture:</h4>
+                <p>Distributed snapshots let us reason about global state in systems with:</p>
+                <ul>
+                    <li>No global clock</li>
+                    <li>No ability to pause</li>
+                    <li>No shared memory</li>
+                </ul>
+                <p>The Chandy-Lamport algorithm elegantly solves this using marker messages to create a consistent "wave" through the system, capturing a state that could have occurred even if it never actually occurred at one physical instant.</p>
+                <p>This is foundational for debugging, checkpointing, garbage collection, and many other distributed system tasks.</p>
+            </div>
+
+            <div class="callout-success">
+                <h4>Study Strategy:</h4>
+                <ol>
+                    <li><strong>Understand the intuition:</strong> Group photo analogy, consistent = causally valid</li>
+                    <li><strong>Memorize the algorithm:</strong> RRR (Record-Relay-Record channel)</li>
+                    <li><strong>Practice tracing:</strong> Work through examples step-by-step</li>
+                    <li><strong>Know the applications:</strong> GDD-CT</li>
+                    <li><strong>Understand trade-offs:</strong> FIFO requirement, marker overhead</li>
+                </ol>
+            </div>
+
+            <p><strong>Good luck on your exam!</strong> Remember: draw spacetime diagrams, track state carefully, and when tracing Chandy-Lamport, pay close attention to FIFO message order. Markers are barriers that separate before/after snapshot messages.</p>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

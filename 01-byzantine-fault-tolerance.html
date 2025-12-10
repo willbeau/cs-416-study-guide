@@ -1,0 +1,2258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Byzantine Fault Tolerance | CS 416 Study Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Byzantine Fault Tolerance</h1>
+            <p>CS 416 Study Guide - Topic 01</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="01-byzantine-fault-tolerance.html">Byzantine Fault Tolerance</a></li>
+                <li><a href="02-sequential-consistency.html">Sequential Consistency</a></li>
+                <li><a href="03-causal-consistency.html">Causal Consistency</a></li>
+                <li><a href="04-file-sync-vector-time.html">File Sync & Vector Time</a></li>
+                <li><a href="05-lamport-clocks-eventual.html">Lamport Clocks</a></li>
+                <li><a href="06-mutual-exclusion.html">Mutual Exclusion</a></li>
+                <li><a href="07-distributed-snapshots.html">Distributed Snapshots</a></li>
+                <li><a href="08-chord-dht.html">Chord DHT</a></li>
+                <li><a href="09-bitcoin.html">Bitcoin</a></li>
+                <li><a href="10-practice-questions.html">Practice Questions</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <h2>Introduction</h2>
+        <p>Welcome to your comprehensive guide on Practical Byzantine Fault Tolerance! This guide will help you understand one of the most fascinating problems in distributed systems: how can a group of computers reach agreement when some of them might be actively trying to sabotage the process?</p>
+
+        <div class="callout-info">
+            <strong>Study Guide Overview</strong>
+            <p>This guide covers everything from the basic Byzantine Generals Problem to practical implementations in modern distributed systems. Work through each section carefully and test yourself with the practice scenarios at the end.</p>
+        </div>
+
+        <h2>Table of Contents</h2>
+        <ol>
+            <li><a href="#what-are-byzantine-faults">What Are Byzantine Faults?</a></li>
+            <li><a href="#the-byzantine-generals-problem">The Byzantine Generals Problem</a></li>
+            <li><a href="#understanding-pbft">Understanding PBFT</a></li>
+            <li><a href="#pbft-algorithm-mechanics">PBFT Algorithm Mechanics</a></li>
+            <li><a href="#how-consensus-is-achieved">How Consensus is Achieved</a></li>
+            <li><a href="#practical-applications">Practical Applications</a></li>
+            <li><a href="#key-formulas-and-memory-aids">Key Formulas and Memory Aids</a></li>
+            <li><a href="#practice-scenarios">Practice Scenarios</a></li>
+        </ol>
+
+        <h2 id="what-are-byzantine-faults">What Are Byzantine Faults?</h2>
+
+        <h3>The Concept</h3>
+        <p>In distributed systems, we deal with different types of failures:</p>
+        <ol>
+            <li><strong>Crash Failures:</strong> A node stops working (like your computer freezing)</li>
+            <li><strong>Omission Failures:</strong> A node drops some messages (like spotty WiFi)</li>
+            <li><strong>Byzantine Failures:</strong> A node behaves arbitrarily, possibly maliciously</li>
+        </ol>
+
+        <div class="callout-warning">
+            <strong>Real-World Analogy</strong>
+            <p>Think of a group project where:</p>
+            <ul>
+                <li>Crash failure = someone gets sick and can't contribute</li>
+                <li>Omission failure = someone's email goes to spam</li>
+                <li>Byzantine failure = someone actively tries to sabotage the project by giving false information</li>
+            </ul>
+        </div>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Failure Types Comparison</h3>
+            <div id="failure-types-viz" style="min-height: 400px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="animateFailureTypes()" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; transition: background 0.3s;">Replay Animation</button>
+            </div>
+        </div>
+
+        <h3>Why "Byzantine"?</h3>
+        <p>The name comes from the Byzantine Generals Problem, a thought experiment about generals trying to coordinate an attack. The term "Byzantine" suggests complex, unpredictable behavior - just like the political intrigue of the Byzantine Empire!</p>
+
+        <h3>What Makes Byzantine Faults Special?</h3>
+        <p>Byzantine nodes can:</p>
+        <ul>
+            <li>Send different messages to different nodes</li>
+            <li>Send corrupted or false information</li>
+            <li>Collude with other faulty nodes</li>
+            <li>Appear to work correctly while actually being malicious</li>
+            <li>Violate protocol in any arbitrary way</li>
+        </ul>
+
+        <div class="callout-warning">
+            <strong>Key Insight</strong>
+            <p>Byzantine faults are the hardest type of failure to handle because you can't trust anything a Byzantine node says or does!</p>
+        </div>
+
+        <h2 id="the-byzantine-generals-problem">The Byzantine Generals Problem</h2>
+
+        <h3>The Classic Formulation</h3>
+        <p>Imagine several Byzantine army generals surrounding a city. They need to agree on a common plan: <strong>attack</strong> or <strong>retreat</strong>. Here's the challenge:</p>
+        <ol>
+            <li>Some generals might be traitors (Byzantine faults)</li>
+            <li>They communicate only by messengers</li>
+            <li>Traitors can send different messages to different generals</li>
+            <li>All loyal generals must agree on the same plan</li>
+            <li>If the commanding general is loyal, all loyal generals must follow their plan</li>
+        </ol>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Byzantine Generals Problem</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <button onclick="setGeneralsScenario(1)" id="scenario1-btn" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Scenario 1: Traitor Lieutenant</button>
+                <button onclick="setGeneralsScenario(2)" id="scenario2-btn" style="background: var(--border-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Scenario 2: Traitor Commander</button>
+            </div>
+            <div id="generals-viz" style="min-height: 500px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="prevGeneralsStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">◄ Previous</button>
+                <button onclick="nextGeneralsStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Next ►</button>
+                <button onclick="resetGenerals()" style="background: var(--accent-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Reset</button>
+            </div>
+            <div id="generals-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; border-left: 4px solid var(--secondary-color);"></div>
+        </div>
+
+        <h3>A Concrete Example</h3>
+        <p>Let's say we have 4 generals: Alice (commander), Bob, Carol, and Dave.</p>
+
+        <h4>Scenario 1: Commander is loyal, but Dave is a traitor</h4>
+        <pre><code>Alice (Commander): "ATTACK"
+  |
+  +-> Bob receives "ATTACK"
+  +-> Carol receives "ATTACK"
+  +-> Dave receives "ATTACK" (but Dave is a traitor!)
+
+Dave then tells:
+  - Bob: "Alice told me to RETREAT"
+  - Carol: "Alice told me to ATTACK"</code></pre>
+
+        <p><strong>The Challenge:</strong> Bob and Carol need to figure out what Alice really said, despite Dave's lies!</p>
+
+        <h4>Scenario 2: Commander (Alice) is the traitor</h4>
+        <pre><code>Alice (Traitor Commander):
+  +-> Tells Bob: "ATTACK"
+  +-> Tells Carol: "RETREAT"
+  +-> Tells Dave: "ATTACK"</code></pre>
+
+        <p><strong>The Challenge:</strong> Bob, Carol, and Dave need to agree on SOMETHING (even if they ignore Alice's command) so they all do the same thing!</p>
+
+        <h3>The Famous Result</h3>
+
+        <div class="callout-info">
+            <strong>Key Variables - Know These!</strong>
+            <ul>
+                <li><strong>n</strong> = total number of nodes (replicas) in the system</li>
+                <li><strong>f</strong> = maximum number of Byzantine (faulty) nodes the system can tolerate</li>
+                <li><strong>v</strong> = view number (which primary/leader is currently in charge)</li>
+                <li><strong>d</strong> = digest (cryptographic hash of a message)</li>
+            </ul>
+        </div>
+
+        <div class="callout-warning">
+            <strong>🔍 Important: We DON'T know how many faulty nodes actually exist!</strong>
+            <p><strong>f</strong> is the <strong>maximum</strong> we're designed to tolerate, not the actual count of faulty nodes.</p>
+            <p><strong>How it works:</strong></p>
+            <ul>
+                <li>You decide how many nodes (n) to deploy: 4, 7, 10, etc.</li>
+                <li>The formula <strong>f = ⌊(n-1)/3⌋</strong> tells you the max faults you can tolerate</li>
+                <li>The actual number of Byzantine nodes could be 0, 1, 2, ..., up to f</li>
+                <li>As long as actual faults ≤ f, the system works correctly!</li>
+            </ul>
+            <p><strong>Example:</strong> You deploy 7 nodes → f = ⌊6/3⌋ = 2. This means:</p>
+            <ul>
+                <li>If 0 nodes are faulty → system works ✓</li>
+                <li>If 1 node is faulty → system works ✓</li>
+                <li>If 2 nodes are faulty → system works ✓</li>
+                <li>If 3+ nodes are faulty → <strong>system may fail ✗</strong></li>
+            </ul>
+            <p><strong>Think of it like:</strong> A bridge rated for 10 tons. We don't know how heavy the actual truck is, but as long as it's ≤ 10 tons, the bridge is guaranteed to hold.</p>
+        </div>
+
+        <p><strong>Lamport, Shostak, and Pease (1982)</strong> proved:</p>
+        <ul>
+            <li>With <strong>f</strong> Byzantine (faulty) nodes you want to tolerate</li>
+            <li>You need <strong>at least n ≥ 3f + 1</strong> total nodes to reach consensus</li>
+        </ul>
+
+        <div class="callout-success">
+            <strong>Memory Aid</strong>
+            <p>"Three for one" - you need THREE good nodes for every ONE bad node to guarantee consensus.</p>
+            <p><strong>Example:</strong> If you want to tolerate f=2 Byzantine nodes, you need n ≥ 3(2) + 1 = 7 total nodes.</p>
+        </div>
+
+        <p><strong>Why?</strong> With 3 generals and 1 traitor:</p>
+        <ul>
+            <li>If the commander is the traitor, they can split the vote 1-1</li>
+            <li>The other 2 generals can't tell who's lying</li>
+            <li>No consensus is possible!</li>
+        </ul>
+
+        <p>But with 4 generals and 1 traitor:</p>
+        <ul>
+            <li>3 loyal generals can outvote the 1 traitor</li>
+            <li>Consensus becomes possible!</li>
+        </ul>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: 3f + 1 Formula Explained</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <label style="font-weight: bold; margin-right: 1rem;">Number of Byzantine Faults (f): <span id="formula-f-display">1</span></label>
+                <input type="range" id="formula-f-slider" min="1" max="4" value="1" oninput="updateFormulaViz()" style="width: 300px; vertical-align: middle;">
+            </div>
+            <div style="text-align: center; margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                <p style="font-size: 1.2rem; margin: 0.5rem;"><strong>Minimum Nodes Required:</strong> <span id="formula-n-display" style="color: var(--secondary-color); font-size: 1.5rem;">4</span></p>
+                <p style="font-size: 1rem; margin: 0.5rem;">Formula: n ≥ 3f + 1 = 3(<span id="formula-f-calc">1</span>) + 1 = <span id="formula-result">4</span></p>
+            </div>
+            <div id="formula-viz" style="min-height: 400px;"></div>
+            <div id="formula-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(39, 174, 96, 0.1); border-radius: 5px; border-left: 4px solid var(--success-color);"></div>
+        </div>
+
+        <h2 id="understanding-pbft">Understanding PBFT</h2>
+
+        <h3>What is PBFT?</h3>
+        <p><strong>Practical Byzantine Fault Tolerance</strong> (Castro & Liskov, 1999) is a breakthrough algorithm that makes Byzantine fault tolerance actually practical for real systems.</p>
+
+        <p><strong>What makes it "Practical"?</strong></p>
+        <ul>
+            <li>Works in asynchronous networks (realistic internet conditions)</li>
+            <li>Efficient enough for real-world use</li>
+            <li>Doesn't require synchrony assumptions</li>
+            <li>Actually implemented and tested!</li>
+        </ul>
+
+        <h3>Key Assumptions</h3>
+        <p>PBFT assumes:</p>
+        <ol>
+            <li><strong>Partial synchrony:</strong> Messages eventually arrive, but timing is unpredictable</li>
+            <li><strong>Independent node failures:</strong> Nodes fail independently (not all hacked by same attacker)</li>
+            <li><strong>Cryptographic security:</strong> We can use digital signatures to verify messages</li>
+        </ol>
+
+        <h3>The Core Idea</h3>
+        <div class="callout-info">
+            <strong>Analogy: The Courtroom</strong>
+            <p>Think of PBFT like a courtroom with multiple witnesses:</p>
+            <ul>
+                <li>One person (the primary) proposes what happened</li>
+                <li>Everyone else must verify and agree</li>
+                <li>With enough witnesses agreeing, we can trust the verdict</li>
+                <li>Even if some witnesses lie, the truth emerges from the majority</li>
+            </ul>
+        </div>
+
+        <h2 id="pbft-algorithm-mechanics">PBFT Algorithm Mechanics</h2>
+
+        <h3>The Players</h3>
+        <ol>
+            <li><strong>Primary (Leader):</strong> Proposes the order of client requests</li>
+            <li><strong>Replicas (Backups):</strong> Verify and agree on the proposed order</li>
+            <li><strong>Clients:</strong> Send requests to the system</li>
+        </ol>
+
+        <div class="callout-info">
+            <strong>Analogy: Restaurant Kitchen</strong>
+            <ul>
+                <li>Primary = Head chef who calls out orders</li>
+                <li>Replicas = Line cooks who verify they heard correctly</li>
+                <li>Clients = Customers placing orders</li>
+            </ul>
+        </div>
+
+        <h3>The Three-Phase Protocol</h3>
+        <p>PBFT uses three phases to reach agreement. Remember: <strong>PPP</strong> = <strong>Pre-prepare, Prepare, Commit</strong></p>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: PBFT Three-Phase Protocol</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <label style="margin-right: 1rem;">
+                    <input type="checkbox" id="pbft-byzantine-mode" onchange="updatePBFTMode()">
+                    <strong>Byzantine Mode</strong> (N3 is faulty)
+                </label>
+            </div>
+            <div id="pbft-viz" style="min-height: 600px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="prevPBFTStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">◄ Previous</button>
+                <button onclick="nextPBFTStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Next ►</button>
+                <button onclick="playPBFT()" id="pbft-play-btn" style="background: var(--success-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">▶ Auto Play</button>
+                <button onclick="resetPBFT()" style="background: var(--accent-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Reset</button>
+            </div>
+            <div id="pbft-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; border-left: 4px solid var(--secondary-color);"></div>
+            <div id="pbft-message-log" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 5px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;"></div>
+        </div>
+
+        <h4>Phase 1: PRE-PREPARE</h4>
+        <p><strong>What happens:</strong></p>
+        <ol>
+            <li>Client sends request to the primary</li>
+            <li>Primary assigns sequence number to request</li>
+            <li>Primary broadcasts PRE-PREPARE message to all replicas</li>
+        </ol>
+
+        <p><strong>Message format:</strong> <code>PRE-PREPARE⟨v, n, d⟩</code></p>
+        <ul>
+            <li>v = view number (which primary is in charge)</li>
+            <li>n = sequence number for this request</li>
+            <li>d = digest (hash) of the client's request</li>
+        </ul>
+
+        <p><strong>Analogy:</strong> Head chef receives an order and calls out "Table 5, order #42: Chicken Parm!"</p>
+
+        <p><strong>Replica checks:</strong></p>
+        <ul>
+            <li>Is the signature valid?</li>
+            <li>Is this the current view?</li>
+            <li>Is the sequence number in the correct range?</li>
+            <li>Haven't we already accepted a different request for this sequence number?</li>
+        </ul>
+
+        <h4>Phase 2: PREPARE</h4>
+        <p><strong>What happens:</strong></p>
+        <ol>
+            <li>Each replica receives PRE-PREPARE</li>
+            <li>If it accepts it, broadcasts PREPARE to all other replicas</li>
+            <li>Each replica waits to receive PREPARE from 2f other replicas (+ its own)</li>
+        </ol>
+
+        <p><strong>Message format:</strong> <code>PREPARE⟨v, n, d, i⟩</code></p>
+        <ul>
+            <li>v = view number</li>
+            <li>n = sequence number</li>
+            <li>d = digest</li>
+            <li>i = replica ID</li>
+        </ul>
+
+        <div class="callout-info">
+            <strong>🤔 What does "including its own" mean?</strong>
+            <p>Each node <strong>counts the PREPARE message it sent</strong> when waiting for 2f+1 total!</p>
+            <p><strong>Concrete Example:</strong> 7-node system with f=2, looking at node N1:</p>
+            <ul>
+                <li><strong>Step 1:</strong> N1 sends its own PREPARE message (broadcasts to everyone)</li>
+                <li><strong>Step 2:</strong> N1 counts that message: "I have 1 PREPARE (mine)"</li>
+                <li><strong>Step 3:</strong> N1 waits to receive PREPARE from other nodes: "Now I have N0's, N2's, N3's, N4's..."</li>
+                <li><strong>Step 4:</strong> When N1 has collected 4 more (from others) + 1 (its own) = 5 total PREPAREs, it proceeds!</li>
+            </ul>
+            <p><strong>Think of it like voting:</strong> "I voted YES (that's 1 vote). Now I need to hear 4 others also vote YES. That gives me 5 total YES votes, which is my quorum!"</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Why 2f + 1?</strong>
+            <p>With at most f faulty nodes in a system of 3f+1 nodes, getting 2f+1 agreements guarantees at least f+1 honest nodes agree. Since all honest nodes execute the same logic, this proves the decision is correct!</p>
+        </div>
+
+        <p><strong>Analogy:</strong> Each line cook repeats the order back: "Confirmed, order #42: Chicken Parm!" You count your own confirmation plus confirmations from coworkers. When you hear enough total confirmations (including yours), everyone knows they heard it correctly.</p>
+
+        <p><strong>Key Insight:</strong> After the PREPARE phase, all honest replicas agree on the sequence number for the request in this view.</p>
+
+        <h4>Phase 3: COMMIT</h4>
+        <p><strong>What happens:</strong></p>
+        <ol>
+            <li>Once a replica has 2f + 1 PREPARE messages (including its own), it broadcasts COMMIT</li>
+            <li>Each replica waits to receive COMMIT from 2f + 1 different replicas (including itself)</li>
+            <li>Once received, the replica executes the request and sends reply to client</li>
+        </ol>
+
+        <p><strong>Message format:</strong> <code>COMMIT⟨v, n, d, i⟩</code></p>
+
+        <div class="callout-info">
+            <strong>Same "including its own" rule applies here:</strong>
+            <p><strong>Example:</strong> In a 7-node system (f=2), node N1 needs 2f+1 = 5 COMMIT messages:</p>
+            <ul>
+                <li>1 COMMIT from itself (the one it broadcast)</li>
+                <li>+ 4 COMMIT messages from other nodes</li>
+                <li>= 5 total COMMIT messages → N1 can now execute the request!</li>
+            </ul>
+        </div>
+
+        <p><strong>Analogy:</strong> Each cook says "Starting on order #42!" You count yourself saying it plus hearing your coworkers say it. Once enough total commitments are made (including yours), you all know the order is really happening.</p>
+
+        <p><strong>Why is COMMIT needed?</strong> PREPARE ensures agreement within a view. COMMIT ensures this agreement is strong enough to survive a view change!</p>
+
+        <h3>Visual Summary</h3>
+        <pre><code>Client
+  |
+  | 1. Request
+  v
+Primary (Replica 0)
+  |
+  | 2. PRE-PREPARE (to all replicas)
+  v
+All Replicas
+  |
+  | 3. PREPARE (each replica broadcasts to all)
+  | (wait for 2f + 1 PREPARE messages)
+  v
+All Replicas
+  |
+  | 4. COMMIT (each replica broadcasts to all)
+  | (wait for 2f + 1 COMMIT messages)
+  v
+Execute & Reply to Client</code></pre>
+
+        <h3>Example: 4 Nodes, 1 Faulty (f=1)</h3>
+        <p>System: N0 (Primary), N1, N2, N3<br>
+        Faulty: N3 is Byzantine</p>
+
+        <p><strong>Step-by-step:</strong></p>
+        <ol>
+            <li><strong>Client → N0:</strong> "Transfer $100 from Alice to Bob"</li>
+            <li><strong>PRE-PREPARE</strong> (N0 → all):
+                <ul>
+                    <li>N0: Sends <code>PRE-PREPARE⟨0, 42, hash(request)⟩</code></li>
+                    <li>N1, N2 receive and accept (N3 might drop it or corrupt it)</li>
+                </ul>
+            </li>
+            <li><strong>PREPARE</strong> (all → all):
+                <ul>
+                    <li>N0 sends <code>PREPARE⟨0, 42, hash⟩</code></li>
+                    <li>N1 sends <code>PREPARE⟨0, 42, hash⟩</code></li>
+                    <li>N2 sends <code>PREPARE⟨0, 42, hash⟩</code></li>
+                    <li>N3 might send wrong sequence number or nothing</li>
+                    <li>Each honest node collects 2f + 1 = 3 matching PREPAREs (from N0, N1, N2 - they can ignore N3's bad message)</li>
+                </ul>
+            </li>
+            <li><strong>COMMIT</strong> (all → all):
+                <ul>
+                    <li>N0, N1, N2 each send <code>COMMIT⟨0, 42, hash⟩</code></li>
+                    <li>N3 might send conflicting message</li>
+                    <li>Each honest node collects 2f + 1 = 3 matching COMMITs</li>
+                </ul>
+            </li>
+            <li><strong>Execute:</strong> N0, N1, N2 all execute the transfer</li>
+            <li><strong>Reply:</strong> Client receives 3 matching replies (ignores if N3 sends wrong reply)</li>
+        </ol>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: PBFT Example Walkthrough</h3>
+            <p style="text-align: center; color: var(--text-color);"><em>4 nodes system with N3 as Byzantine node - Transfer $100 from Alice to Bob</em></p>
+            <div id="pbft-example-viz" style="min-height: 500px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="prevExampleStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">◄ Previous</button>
+                <button onclick="nextExampleStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Next ►</button>
+                <button onclick="resetExample()" style="background: var(--accent-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Reset</button>
+            </div>
+            <div id="example-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; border-left: 4px solid var(--secondary-color);"></div>
+        </div>
+
+        <h3>Why Does This Work?</h3>
+        <div class="callout-success">
+            <strong>The Magic of 2f + 1:</strong>
+            <ul>
+                <li>Total nodes: 3f + 1</li>
+                <li>Byzantine nodes: at most f</li>
+                <li>2f + 1 messages means at least f + 1 are honest</li>
+                <li>This is a majority of honest nodes!</li>
+            </ul>
+        </div>
+
+        <p><strong>Quorum Intersection:</strong> Any two sets of 2f + 1 nodes must have at least f + 1 nodes in common. Since at most f are faulty, they must share at least one honest node!</p>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Quorum Intersection</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <label style="font-weight: bold; margin-right: 1rem;">Byzantine Nodes (f): <span id="quorum-f-display">1</span></label>
+                <input type="range" id="quorum-f-slider" min="1" max="3" value="1" oninput="updateQuorumViz()" style="width: 300px; vertical-align: middle;">
+            </div>
+            <div style="text-align: center; margin-bottom: 1rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                <p style="font-size: 1rem; margin: 0.5rem;"><strong>Total Nodes:</strong> <span id="quorum-total">4</span> | <strong>Quorum Size (2f+1):</strong> <span id="quorum-size">3</span></p>
+            </div>
+            <div id="quorum-viz" style="min-height: 450px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="randomizeQuorums()" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem;">Randomize Quorums</button>
+            </div>
+            <div id="quorum-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(39, 174, 96, 0.1); border-radius: 5px; border-left: 4px solid var(--success-color);"></div>
+        </div>
+
+        <h2 id="how-consensus-is-achieved">How Consensus is Achieved Despite Malicious Nodes</h2>
+
+        <h3>The Fundamental Insight</h3>
+        <p>Consensus in PBFT works because:</p>
+        <ol>
+            <li><strong>Quorum Intersection:</strong> Different majorities always overlap in honest nodes</li>
+            <li><strong>Cryptographic Verification:</strong> Signatures prevent forgery</li>
+            <li><strong>Three-phase commit:</strong> Multiple rounds ensure agreement is stable</li>
+        </ol>
+
+        <h3>Handling Different Attack Scenarios</h3>
+
+        <h4>Attack 1: Byzantine Primary Sends Different Values</h4>
+        <p><strong>Scenario:</strong> Primary tells N1 "value = A" and N2 "value = B"</p>
+        <p><strong>How PBFT handles it:</strong></p>
+        <ul>
+            <li>In PREPARE phase, N1 will broadcast "I prepared A"</li>
+            <li>N2 will broadcast "I prepared B"</li>
+            <li>They see the conflict and won't reach 2f + 1 agreement</li>
+            <li>Timeout occurs → View change → New primary elected!</li>
+        </ul>
+
+        <h4>Attack 2: Byzantine Replica Sends Conflicting Messages</h4>
+        <p><strong>Scenario:</strong> N3 tells some nodes "I prepared A" and others "I prepared B"</p>
+        <p><strong>How PBFT handles it:</strong></p>
+        <ul>
+            <li>Honest nodes collect messages digitally signed by N3</li>
+            <li>They see N3 is misbehaving</li>
+            <li>They have 2f + 1 honest agreements without N3</li>
+            <li>N3's vote doesn't matter!</li>
+        </ul>
+
+        <h4>Attack 3: Byzantine Nodes Collude</h4>
+        <p><strong>Scenario:</strong> f Byzantine nodes work together to disrupt consensus</p>
+        <p><strong>How PBFT handles it:</strong></p>
+        <ul>
+            <li>Need 2f + 1 agreements</li>
+            <li>Even if f nodes lie, we have f + 1 honest nodes agreeing</li>
+            <li>As long as f < (n-1)/3, we have enough honest nodes</li>
+            <li>The math works out: with 3f + 1 total, we have 2f + 1 honest nodes</li>
+        </ul>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Attack Scenarios</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <button onclick="setAttackScenario(1)" id="attack1-btn" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Attack 1: Byzantine Primary</button>
+                <button onclick="setAttackScenario(2)" id="attack2-btn" style="background: var(--border-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Attack 2: Byzantine Replica</button>
+                <button onclick="setAttackScenario(3)" id="attack3-btn" style="background: var(--border-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Attack 3: Collusion</button>
+            </div>
+            <div id="attack-viz" style="min-height: 500px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="prevAttackStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">◄ Previous</button>
+                <button onclick="nextAttackStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Next ►</button>
+                <button onclick="resetAttack()" style="background: var(--accent-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Reset</button>
+            </div>
+            <div id="attack-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(231, 76, 60, 0.1); border-radius: 5px; border-left: 4px solid var(--accent-color);"></div>
+        </div>
+
+        <h3>View Changes: What if the Primary is Faulty?</h3>
+        <p><strong>When does a view change happen?</strong></p>
+        <ul>
+            <li>Replica doesn't receive expected PRE-PREPARE in time</li>
+            <li>Replica detects primary is Byzantine</li>
+        </ul>
+
+        <p><strong>How it works:</strong></p>
+        <ol>
+            <li>Replicas broadcast VIEW-CHANGE messages</li>
+            <li>Once 2f + 1 replicas want to change, new view starts</li>
+            <li>New primary = (view_number) mod (number_of_replicas)</li>
+            <li>New primary collects proof that view change is legitimate</li>
+            <li>New primary broadcasts NEW-VIEW message with the proof</li>
+        </ol>
+
+        <div class="callout-info">
+            <strong>🔐 How do we know the new primary is legitimate?</strong>
+            <p>The new primary must prove it has the right to be primary by showing:</p>
+            <ul>
+                <li><strong>A certificate of 2f + 1 signed VIEW-CHANGE messages</strong> from different replicas</li>
+                <li>This proves that enough replicas voted to change views</li>
+                <li>Everyone knows: new_primary = new_view_number mod n (deterministic formula)</li>
+                <li>The new primary broadcasts a <strong>NEW-VIEW message</strong> containing:
+                    <ul>
+                        <li>The new view number (v+1)</li>
+                        <li>The 2f+1 VIEW-CHANGE messages as proof</li>
+                        <li>A set of PRE-PREPARE messages for any in-progress requests</li>
+                    </ul>
+                </li>
+            </ul>
+            <p><strong>Why this works:</strong></p>
+            <ul>
+                <li>A malicious node can't fake being primary without 2f+1 VIEW-CHANGE signatures</li>
+                <li>At most f nodes are Byzantine, so 2f+1 signatures means at least f+1 honest nodes agreed to the view change</li>
+                <li>The primary selection formula is deterministic (everyone can verify: is this really node N<sub>v mod n</sub>?)</li>
+                <li>All replicas verify the NEW-VIEW message before accepting the new primary</li>
+            </ul>
+            <p><strong>Example:</strong> In a 7-node system (f=2), view changes from 0→1:</p>
+            <ul>
+                <li>New primary should be N1 (1 mod 7 = 1) ← everyone can calculate this</li>
+                <li>N1 must show 2f+1 = 5 signed VIEW-CHANGE messages</li>
+                <li>If N3 tries to claim "I'm the new primary!", other nodes reject it because 1 mod 7 ≠ 3</li>
+                <li>If N1 can't produce 5 VIEW-CHANGE messages, nodes reject its NEW-VIEW message</li>
+            </ul>
+        </div>
+
+        <div class="callout-success">
+            <strong>Memory Aid</strong>
+            <p>"Vote them out!" - if the leader is bad, the group can elect a new one.</p>
+            <p>"Show me your votes!" - the new primary must prove it was elected with 2f+1 votes.</p>
+        </div>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: View Change Process</h3>
+            <div id="viewchange-viz" style="min-height: 500px;"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <button onclick="prevViewChangeStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">◄ Previous</button>
+                <button onclick="nextViewChangeStep()" style="background: var(--primary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Next ►</button>
+                <button onclick="resetViewChange()" style="background: var(--accent-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Reset</button>
+            </div>
+            <div id="viewchange-explanation" style="margin-top: 1rem; padding: 1rem; background: rgba(243, 156, 18, 0.1); border-radius: 5px; border-left: 4px solid var(--warning-color);"></div>
+        </div>
+
+        <h2 id="practical-applications">Practical Applications</h2>
+
+        <h3>1. Blockchain and Cryptocurrencies</h3>
+        <p><strong>Use Case:</strong> Many blockchain systems use PBFT or variants</p>
+        <p><strong>Real-World Examples:</strong></p>
+
+        <div class="callout-success">
+            <strong>Hyperledger Fabric (IBM & Linux Foundation)</strong>
+            <p><strong>The System:</strong> Enterprise blockchain platform used by major corporations</p>
+            <p><strong>Real Deployments:</strong></p>
+            <ul>
+                <li><strong>Walmart Food Traceability:</strong> Tracks food from farm to store across suppliers. Uses PBFT to ensure no single supplier can falsify food origin data. With 10+ validators, can tolerate 3 malicious nodes.</li>
+                <li><strong>Maersk TradeLens:</strong> Shipping logistics platform with 150+ organizations. PBFT ensures shipping documents can't be forged even if some port authorities' systems are compromised.</li>
+                <li><strong>We.Trade:</strong> European trade finance platform with 12 banks. Uses PBFT so no single bank can manipulate transaction records.</li>
+            </ul>
+            <p><strong>Why PBFT Matters Here:</strong> In a network where competitors collaborate, you can't trust every participant. PBFT ensures consensus even if some members try to cheat.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Tendermint (Cosmos Network)</strong>
+            <p><strong>The System:</strong> BFT consensus engine powering multiple blockchains</p>
+            <p><strong>Real Deployments:</strong></p>
+            <ul>
+                <li><strong>Binance Chain:</strong> Processes millions of cryptocurrency trades daily. With 21 validators, tolerates 6 Byzantine failures while maintaining sub-second finality.</li>
+                <li><strong>Terra (before collapse):</strong> Handled billions in stablecoin transactions using Tendermint's BFT with 130 validators.</li>
+                <li><strong>Crypto.org Chain:</strong> Powers Crypto.com's payment network with instant transaction finality.</li>
+            </ul>
+            <p><strong>Real Scenario:</strong> If a validator gets hacked and starts proposing invalid transactions, the other validators detect and reject the malicious proposals. The network continues operating normally.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Zilliqa</strong>
+            <p><strong>The System:</strong> Sharded blockchain using PBFT within each shard</p>
+            <p><strong>How It Works:</strong> Divides 600 validator nodes into multiple shards of ~600 nodes each. Each shard runs PBFT independently, achieving high throughput while maintaining Byzantine fault tolerance.</p>
+            <p><strong>Real Performance:</strong> Processes 2,800+ transactions per second versus Bitcoin's ~7 TPS, while still tolerating 33% malicious validators per shard.</p>
+        </div>
+
+        <p><strong>Why it matters:</strong> Financial transactions need to be secure even if some validators are malicious, hacked, or have bugs. Traditional crash fault tolerance isn't enough when money is involved.</p>
+
+        <h3>2. Cloud Storage and Databases</h3>
+        <p><strong>Use Case:</strong> Ensuring data integrity across replicas</p>
+
+        <div class="callout-success">
+            <strong>BFT-SMaRt (University of Lisbon)</strong>
+            <p><strong>The System:</strong> State machine replication library for Java applications</p>
+            <p><strong>Real Deployments:</strong></p>
+            <ul>
+                <li><strong>Financial Trading Systems:</strong> Brazilian stock exchange experimented with BFT-SMaRt for order matching. Ensures trades execute correctly even if some servers are compromised.</li>
+                <li><strong>Medical Record Systems:</strong> Portuguese hospitals tested BFT-SMaRt for replicating patient records across data centers, ensuring attackers can't corrupt medical data.</li>
+            </ul>
+            <p><strong>Performance:</strong> Achieves 80,000+ operations/second with 4 replicas, making it practical for real-time systems.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>UpRight (UT Austin & Intel)</strong>
+            <p><strong>The System:</strong> Cloud storage framework separating agreement from execution</p>
+            <p><strong>Innovation:</strong> Uses BFT only for coordination (which operations to execute) while allowing faster crash fault tolerance for the actual data storage.</p>
+            <p><strong>Real Scenario:</strong> A company stores encrypted backup data across 7 cloud providers (AWS, Azure, GCP, etc.). Even if 2 providers are compromised or try to delete data, the system maintains data integrity using the remaining 5 replicas.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>CockroachDB (BFT Mode - Experimental)</strong>
+            <p><strong>The System:</strong> Distributed SQL database exploring BFT consensus</p>
+            <p><strong>Use Case:</strong> Multi-tenant SaaS applications where different customers' databases run on shared infrastructure but need cryptographic isolation from each other.</p>
+        </div>
+
+        <p><strong>Real-world scenario:</strong> A cloud storage company has 7 data centers globally. Even if 2 data centers are compromised by attackers or suffer hardware failures that cause data corruption, the system continues serving correct data using the remaining 5 data centers. The BFT algorithm detects which replicas are faulty by comparing responses.</p>
+
+        <h3>3. Critical Infrastructure and Aerospace</h3>
+        <p><strong>Use Case:</strong> Systems where safety is paramount and failures could be catastrophic</p>
+
+        <div class="callout-success">
+            <strong>Boeing 777 Flight Control System</strong>
+            <p><strong>The System:</strong> Triple-redundant flight computers with Byzantine fault tolerance</p>
+            <p><strong>How It Works:</strong></p>
+            <ul>
+                <li>Three independent flight control computers (Primary, Secondary, Tertiary)</li>
+                <li>All three continuously execute the same flight control algorithms</li>
+                <li>They vote on control surface commands using a BFT-like protocol</li>
+                <li>Can tolerate one computer sending incorrect commands due to radiation-induced bit flips or hardware damage</li>
+            </ul>
+            <p><strong>Real Scenario:</strong> During flight, if one computer's memory gets corrupted by cosmic radiation and starts commanding the wrong rudder angle, the other two computers detect the inconsistency and override the faulty command. The aircraft continues flying safely.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>SpaceX Dragon Spacecraft</strong>
+            <p><strong>The System:</strong> Redundant flight computers with fault masking</p>
+            <p><strong>Configuration:</strong> Uses 3 dual-redundant flight computers (6 total) running voting algorithms</p>
+            <p><strong>Why Byzantine Tolerance:</strong> In space, cosmic rays can cause arbitrary bit flips. Can't just detect crashes - need to tolerate computers giving wrong answers.</p>
+            <p><strong>Real Mission:</strong> During ISS docking, if radiation corrupts one computer's distance calculations, the voting system ensures thrusters fire based on majority consensus of correct computers.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Power Grid SCADA Systems</strong>
+            <p><strong>The System:</strong> Supervisory Control and Data Acquisition for electrical grids</p>
+            <p><strong>Research Deployment:</strong> European SmartGrid projects testing BFT for distributed energy management</p>
+            <p><strong>Scenario:</strong> Multiple control centers manage a regional power grid. With BFT:
+                <ul>
+                    <li>If hackers compromise one control center and try to send blackout commands, other centers reject the invalid commands</li>
+                    <li>System continues balancing power load even under cyberattack</li>
+                    <li>Prevents cascading failures from malicious control signals</li>
+                </ul>
+            </p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Medical Device Networks (FDA Research)</strong>
+            <p><strong>The System:</strong> Coordinated medical devices in operating rooms</p>
+            <p><strong>Scenario:</strong> Robotic surgery system with multiple control computers:
+                <ul>
+                    <li>Surgeon console, vision system, instrument controllers all vote on movements</li>
+                    <li>If one controller malfunctions and commands dangerous movement, others override it</li>
+                    <li>Critical for patient safety when bugs or malfunctions could be fatal</li>
+                </ul>
+            </p>
+        </div>
+
+        <h3>4. Distributed Coordination and Consensus</h3>
+
+        <div class="callout-success">
+            <strong>Apache ZooKeeper with BFT Extension</strong>
+            <p><strong>The System:</strong> Distributed coordination service (standard ZooKeeper uses ZAB protocol, but BFT versions exist)</p>
+            <p><strong>Research Projects:</strong> BFT-ZooKeeper and Upright ZooKeeper add Byzantine fault tolerance</p>
+            <p><strong>Use Case:</strong> Financial services companies using ZooKeeper to coordinate distributed transactions where compromise could mean millions in losses</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>Libra/Diem (Meta's Blockchain - Discontinued)</strong>
+            <p><strong>The System:</strong> Used LibraBFT, a variant of HotStuff consensus</p>
+            <p><strong>Design Goal:</strong> Process global payment transactions with low latency while tolerating Byzantine validators</p>
+            <p><strong>Scale:</strong> Designed for 100+ validator nodes representing different financial institutions globally</p>
+            <p><strong>Why It Failed (Business, Not Technical):</strong> Regulatory concerns, but the BFT consensus worked well in testing</p>
+        </div>
+
+        <h3>5. Defense and Government Applications</h3>
+
+        <div class="callout-success">
+            <strong>DARPA Intrusion Tolerant Systems</strong>
+            <p><strong>The Program:</strong> US military research into systems that work correctly even under active cyberattack</p>
+            <p><strong>Real Applications:</strong></p>
+            <ul>
+                <li><strong>Military Command Systems:</strong> Coordination between command centers needs to work even if some are compromised</li>
+                <li><strong>Secure Voting Systems:</strong> Election infrastructure using BFT to prevent vote tampering</li>
+                <li><strong>Classified Data Replication:</strong> Storing sensitive data across locations with BFT ensuring no single breach corrupts the data</li>
+            </ul>
+        </div>
+
+        <h3>6. Financial Services and Trading</h3>
+
+        <div class="callout-success">
+            <strong>Digital Asset Holdings (Now part of DTCC)</strong>
+            <p><strong>The System:</strong> Smart contract platform for securities settlement</p>
+            <p><strong>Use Case:</strong> Settling stock trades between institutions worth billions of dollars</p>
+            <p><strong>Why BFT:</strong> With billions at stake, need cryptographic proof that no participant can manipulate settlement records. Standard crash fault tolerance isn't sufficient.</p>
+            <p><strong>Configuration:</strong> Typically 10-15 validator nodes representing different financial institutions (banks, clearinghouses). Can tolerate 3-4 Byzantine failures.</p>
+        </div>
+
+        <div class="callout-success">
+            <strong>High-Frequency Trading Reconciliation</strong>
+            <p><strong>The Challenge:</strong> Multiple trading systems need to agree on order book state</p>
+            <p><strong>BFT Solution:</strong> Some firms use BFT protocols to reconcile orders across datacenters</p>
+            <p><strong>Real Scenario:</strong> Trading firm has matching engines in 4 datacenters. Bug in one datacenter starts accepting invalid orders. BFT quorum prevents those invalid orders from being considered valid by majority.</p>
+        </div>
+
+        <h3>Real-World Performance Characteristics</h3>
+
+        <div class="callout-info">
+            <strong>Actual Benchmarks from Production Systems:</strong>
+            <ul>
+                <li><strong>Hyperledger Fabric:</strong> 3,500 transactions/second with 4 validators, ~20ms latency</li>
+                <li><strong>Tendermint (Cosmos):</strong> 1,000-10,000 TPS depending on configuration, 1-3 second finality</li>
+                <li><strong>BFT-SMaRt:</strong> 80,000+ operations/second for small requests with 4 replicas</li>
+                <li><strong>Zilliqa:</strong> 2,800+ TPS with sharding across 600 validators</li>
+            </ul>
+            <p><strong>Comparison:</strong> Traditional databases like PostgreSQL can do 100,000+ TPS, but they don't tolerate Byzantine faults. The performance penalty for Byzantine tolerance is typically 10-100x slower than crash-only fault tolerance.</p>
+        </div>
+
+        <h3>Real-World Trade-offs</h3>
+        <div class="callout-success">
+            <strong>When to use PBFT:</strong>
+            <ul>
+                <li>Security is paramount</li>
+                <li>Can tolerate higher latency</li>
+                <li>Have enough nodes (at least 4, typically 7+)</li>
+                <li>Value correctness over performance</li>
+            </ul>
+        </div>
+
+        <div class="callout-warning">
+            <strong>When NOT to use PBFT:</strong>
+            <ul>
+                <li>Need extremely high throughput</li>
+                <li>Can trust all nodes (use simpler protocols like Raft)</li>
+                <li>Have only 2-3 nodes (PBFT needs 3f + 1)</li>
+                <li>Network is very unreliable</li>
+            </ul>
+        </div>
+
+        <h2 id="key-formulas-and-memory-aids">Key Formulas and Memory Aids</h2>
+
+        <div class="callout-info">
+            <strong>Variable Definitions (Memorize These!)</strong>
+            <ul>
+                <li><strong>n</strong> = total number of nodes (replicas) in your system</li>
+                <li><strong>f</strong> = maximum number of Byzantine (malicious/faulty) nodes you want to tolerate</li>
+                <li><strong>v</strong> = view number (indicates which primary is currently in charge; increments on view changes)</li>
+                <li><strong>d</strong> = digest (cryptographic hash/fingerprint of a message)</li>
+                <li><strong>i</strong> = replica ID (identifier for a specific node, like N0, N1, N2...)</li>
+            </ul>
+        </div>
+
+        <h3>Essential Formulas</h3>
+        <ol>
+            <li><strong>Minimum nodes needed:</strong> <code>n ≥ 3f + 1</code>
+                <ul>
+                    <li><strong>n</strong> = total nodes in the system</li>
+                    <li><strong>f</strong> = maximum Byzantine nodes you want to tolerate</li>
+                    <li><strong>Example:</strong> To tolerate f=2 faulty nodes, you need n ≥ 3(2)+1 = 7 nodes</li>
+                </ul>
+            </li>
+            <li><strong>Quorum size (for voting):</strong> <code>2f + 1</code>
+                <ul>
+                    <li>Number of matching messages needed to proceed to next phase</li>
+                    <li><strong>Why?</strong> Ensures overlap of at least one honest node between any two quorums</li>
+                    <li><strong>Example:</strong> With f=2, quorum = 2(2)+1 = 5 nodes must agree</li>
+                </ul>
+            </li>
+            <li><strong>Maximum faults tolerated (given n):</strong> <code>f = ⌊(n-1)/3⌋</code>
+                <ul>
+                    <li>Use this when you know total nodes (n) and want to find max faults (f)</li>
+                    <li>With 4 nodes: f = ⌊(4-1)/3⌋ = ⌊3/3⌋ = 1</li>
+                    <li>With 7 nodes: f = ⌊(7-1)/3⌋ = ⌊6/3⌋ = 2</li>
+                    <li>With 10 nodes: f = ⌊(10-1)/3⌋ = ⌊9/3⌋ = 3</li>
+                </ul>
+            </li>
+            <li><strong>Client replies needed:</strong> <code>f + 1</code>
+                <ul>
+                    <li>Client must wait for this many matching replies before trusting the result</li>
+                    <li><strong>Why?</strong> At most f nodes can be Byzantine, so f+1 matching replies guarantees at least 1 honest node</li>
+                    <li><strong>Example:</strong> With f=2, client waits for 3 matching replies</li>
+                </ul>
+            </li>
+            <li><strong>Primary selection:</strong> <code>primary = v mod n</code>
+                <ul>
+                    <li><strong>v</strong> = current view number</li>
+                    <li><strong>n</strong> = total nodes</li>
+                    <li><strong>Example:</strong> In view 5 with 7 nodes, primary = 5 mod 7 = N5</li>
+                </ul>
+            </li>
+        </ol>
+
+        <h3>Quick Reference Table</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Total Nodes (n)</th>
+                    <th>Max Faults (f)</th>
+                    <th>Quorum Size (2f+1)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>4</td>
+                    <td>1</td>
+                    <td>3</td>
+                </tr>
+                <tr>
+                    <td>7</td>
+                    <td>2</td>
+                    <td>5</td>
+                </tr>
+                <tr>
+                    <td>10</td>
+                    <td>3</td>
+                    <td>7</td>
+                </tr>
+                <tr>
+                    <td>13</td>
+                    <td>4</td>
+                    <td>9</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Interactive Formula Calculator</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+                <div style="padding: 1.5rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px;">
+                    <h4 style="margin-top: 0;">Input: Total Nodes (n)</h4>
+                    <input type="number" id="calc-n-input" min="4" max="20" value="4" oninput="updateCalcFromN()" style="width: 100%; padding: 0.5rem; font-size: 1.2rem; border: 2px solid var(--secondary-color); border-radius: 5px;">
+                    <div style="margin-top: 1rem; text-align: center;">
+                        <button onclick="setPreset(4)" style="background: var(--border-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin: 0.25rem;">4</button>
+                        <button onclick="setPreset(7)" style="background: var(--border-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin: 0.25rem;">7</button>
+                        <button onclick="setPreset(10)" style="background: var(--border-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin: 0.25rem;">10</button>
+                        <button onclick="setPreset(13)" style="background: var(--border-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer; margin: 0.25rem;">13</button>
+                    </div>
+                </div>
+                <div style="padding: 1.5rem; background: rgba(231, 76, 60, 0.1); border-radius: 5px;">
+                    <h4 style="margin-top: 0;">OR Input: Max Faults (f)</h4>
+                    <input type="number" id="calc-f-input" min="1" max="6" value="1" oninput="updateCalcFromF()" style="width: 100%; padding: 0.5rem; font-size: 1.2rem; border: 2px solid var(--accent-color); border-radius: 5px;">
+                </div>
+            </div>
+            <div style="padding: 1.5rem; background: rgba(39, 174, 96, 0.1); border-radius: 5px; margin-bottom: 2rem;">
+                <h4 style="margin-top: 0; text-align: center;">Calculated Values</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div style="text-align: center; padding: 1rem; background: white; border-radius: 5px;">
+                        <div style="font-size: 0.9rem; color: var(--text-color);">Total Nodes</div>
+                        <div style="font-size: 2rem; color: var(--secondary-color); font-weight: bold;" id="calc-n-display">4</div>
+                        <div style="font-size: 0.8rem; color: #7f8c8d;">n</div>
+                    </div>
+                    <div style="text-align: center; padding: 1rem; background: white; border-radius: 5px;">
+                        <div style="font-size: 0.9rem; color: var(--text-color);">Max Faults</div>
+                        <div style="font-size: 2rem; color: var(--accent-color); font-weight: bold;" id="calc-f-display">1</div>
+                        <div style="font-size: 0.8rem; color: #7f8c8d;">f = ⌊(n-1)/3⌋</div>
+                    </div>
+                    <div style="text-align: center; padding: 1rem; background: white; border-radius: 5px;">
+                        <div style="font-size: 0.9rem; color: var(--text-color);">Quorum Size</div>
+                        <div style="font-size: 2rem; color: var(--success-color); font-weight: bold;" id="calc-quorum-display">3</div>
+                        <div style="font-size: 0.8rem; color: #7f8c8d;">2f + 1</div>
+                    </div>
+                    <div style="text-align: center; padding: 1rem; background: white; border-radius: 5px;">
+                        <div style="font-size: 0.9rem; color: var(--text-color);">Client Replies</div>
+                        <div style="font-size: 2rem; color: var(--info-color); font-weight: bold;" id="calc-replies-display">2</div>
+                        <div style="font-size: 0.8rem; color: #7f8c8d;">f + 1</div>
+                    </div>
+                </div>
+            </div>
+            <div id="calculator-viz" style="min-height: 350px;"></div>
+        </div>
+
+        <h3>Memory Aids</h3>
+        <ul>
+            <li><strong>"PPP for PBFT":</strong> Pre-prepare, Prepare, Commit</li>
+            <li><strong>"Three for One":</strong> Need 3 good nodes for each bad one (3f + 1)</li>
+            <li><strong>"Two-f plus me":</strong> Quorum is 2f + 1 (two times f, plus yourself)</li>
+            <li><strong>"Pre-P is Primary, P is Prepare, C is Commit":</strong> Phase sequence</li>
+        </ul>
+
+        <h4>Phase Purposes:</h4>
+        <ul>
+            <li><strong>Pre-prepare:</strong> Primary proposes order</li>
+            <li><strong>Prepare:</strong> Replicas agree on order in current view</li>
+            <li><strong>Commit:</strong> Agreement is stable across view changes</li>
+        </ul>
+
+        <h4>The Five W's of PBFT:</h4>
+        <ul>
+            <li><strong>What:</strong> Byzantine fault-tolerant consensus</li>
+            <li><strong>When:</strong> When security is critical</li>
+            <li><strong>Where:</strong> Distributed systems with untrusted nodes</li>
+            <li><strong>Why:</strong> To reach agreement despite malicious nodes</li>
+            <li><strong>hoW:</strong> Three-phase protocol with 3f + 1 nodes</li>
+        </ul>
+
+        <h2 id="practice-scenarios">Practice Scenarios</h2>
+
+        <h3>Scenario 1: Determining System Parameters</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> You're designing a distributed system that must tolerate 2 Byzantine failures. How many nodes do you need?</p>
+            <p><strong>Answer:</strong></p>
+            <ul>
+                <li>f = 2</li>
+                <li>n ≥ 3f + 1 = 3(2) + 1 = 7 nodes minimum</li>
+                <li>Quorum size = 2f + 1 = 2(2) + 1 = 5</li>
+            </ul>
+            <p><strong>Key Point:</strong> You need at least 7 nodes to tolerate 2 Byzantine faults.</p>
+        </div>
+
+        <h3>Scenario 2: Understanding Message Counts</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> In a PBFT system with 9 nodes, if there are no Byzantine nodes, what is the maximum number of Byzantine nodes the system can tolerate? During the prepare stage, how many PREPARE messages does each replica need to collect (including its own)?</p>
+            <p><strong>Answer:</strong></p>
+            <ul>
+                <li>n = 9</li>
+                <li>f = ⌊(9-1)/3⌋ = ⌊8/3⌋ = 2</li>
+                <li>Maximum Byzantine nodes: f = 2</li>
+                <li>PREPARE messages needed: 2f + 1 = 2(2) + 1 = 5</li>
+            </ul>
+            <p><strong>From lecture 16:</strong> With 9 nodes, fmax = 2 (as shown in the PBFT quiz question)</p>
+        </div>
+
+        <h3>Scenario 3: Why Doesn't the Primary Send PREPARE?</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> In PBFT, the primary does not send PREPARE messages during the prepare stage. Why?</p>
+            <p><strong>Answer</strong> (from lecture 16): The primary's PREPARE message would be identical to its PRE-PREPARE message. Since the primary already sent PRE-PREPARE, sending PREPARE would be redundant. Other replicas already know the primary's position.</p>
+        </div>
+
+        <h3>Scenario 4: Detecting Byzantine Behavior</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> You have a 7-node PBFT system (f=2). During the PREPARE phase, node N5 collects these messages for sequence #100:</p>
+            <ul>
+                <li>N0, N1, N2, N4: "PREPARE⟨view=0, seq=100, hash=X⟩"</li>
+                <li>N3: "PREPARE⟨view=0, seq=100, hash=Y⟩"</li>
+                <li>N6: "PREPARE⟨view=0, seq=101, hash=X⟩"</li>
+            </ul>
+            <p>What should N5 do?</p>
+            <p><strong>Answer:</strong></p>
+            <ul>
+                <li>N5 has 2f + 1 = 5 matching messages (from N0, N1, N2, N4, and itself)</li>
+                <li>N3 and N6 are behaving suspiciously (different hash or sequence)</li>
+                <li>N5 can safely proceed with hash=X, seq=100</li>
+                <li>N5 enters COMMIT phase with the majority agreement</li>
+            </ul>
+            <p><strong>Key Insight:</strong> PBFT works even when minority nodes (≤ f) send conflicting information.</p>
+        </div>
+
+        <h3>Scenario 5: View Change Analysis</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> A PBFT system has 10 nodes (N0-N9) with f=3. The current view is 2 (primary = N2). Nodes detect that N2 is not sending PRE-PREPARE messages. How many nodes must request a view change for it to happen? What will be the next primary?</p>
+            <p><strong>Answer:</strong></p>
+            <ul>
+                <li>Need 2f + 1 = 7 nodes to request VIEW-CHANGE</li>
+                <li>Next view = 3</li>
+                <li>Next primary = N3 (view number mod total nodes)</li>
+            </ul>
+        </div>
+
+        <h3>Scenario 6: Client Perspective</h3>
+        <div class="callout-info">
+            <p><strong>Question:</strong> A client sends a request to a 13-node PBFT system (f=4). How many matching replies must the client wait for before trusting the result?</p>
+            <p><strong>Answer:</strong></p>
+            <ul>
+                <li>Client needs f + 1 = 5 matching replies</li>
+                <li>Why? At most f = 4 could be Byzantine</li>
+                <li>If 5 match, at least 1 is honest</li>
+                <li>All honest nodes produce the same result</li>
+            </ul>
+        </div>
+
+        <div class="visualization-container" style="background: white; border-radius: 10px; padding: 2rem; margin: 2rem 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h3 style="color: var(--secondary-color); margin-top: 0;">📊 Visualization: Interactive Practice Problems</h3>
+            <div style="text-align: center; margin-bottom: 1rem;">
+                <button onclick="loadPracticeProblem(1)" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Problem 1</button>
+                <button onclick="loadPracticeProblem(2)" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Problem 2</button>
+                <button onclick="loadPracticeProblem(3)" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Problem 3</button>
+                <button onclick="loadPracticeProblem(4)" style="background: var(--secondary-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 0.5rem;">Problem 4</button>
+            </div>
+            <div id="practice-problem" style="padding: 1.5rem; background: rgba(52, 152, 219, 0.1); border-radius: 5px; margin-bottom: 1rem; min-height: 100px;"></div>
+            <div id="practice-viz" style="min-height: 400px;"></div>
+            <div id="practice-input" style="margin-top: 1rem; text-align: center;"></div>
+            <div id="practice-feedback" style="margin-top: 1rem; padding: 1rem; border-radius: 5px; display: none;"></div>
+        </div>
+
+        <h2>Exam Preparation Checklist</h2>
+
+        <h3>Core Concepts You Must Know</h3>
+        <ul>
+            <li><input type="checkbox"> Definition of Byzantine faults vs other fault types</li>
+            <li><input type="checkbox"> The Byzantine Generals Problem and why 3f + 1 is needed</li>
+            <li><input type="checkbox"> The three phases of PBFT: Pre-prepare, Prepare, Commit</li>
+            <li><input type="checkbox"> Why we need 2f + 1 messages at each phase</li>
+            <li><input type="checkbox"> What happens during a view change</li>
+            <li><input type="checkbox"> Why the primary doesn't send PREPARE messages</li>
+            <li><input type="checkbox"> Given n nodes, calculate maximum f</li>
+            <li><input type="checkbox"> Given f faults to tolerate, calculate minimum n</li>
+            <li><input type="checkbox"> Real-world applications of PBFT</li>
+        </ul>
+
+        <h3>Common Exam Question Types</h3>
+        <ol>
+            <li><strong>Calculation questions:</strong> Given n, find f; given f, find n</li>
+            <li><strong>Protocol execution:</strong> Trace through PBFT phases</li>
+            <li><strong>Failure scenarios:</strong> What happens if primary/replica is Byzantine?</li>
+            <li><strong>Comparison questions:</strong> PBFT vs Raft, Byzantine vs crash faults</li>
+            <li><strong>Application questions:</strong> When to use PBFT in practice</li>
+        </ol>
+
+        <h3>Final Tips</h3>
+        <ol>
+            <li><strong>Remember the formula:</strong> n ≥ 3f + 1 (this shows up everywhere!)</li>
+            <li><strong>Understand WHY not just WHAT:</strong> Why 3 phases? Why 2f + 1?</li>
+            <li><strong>Draw diagrams:</strong> Visualize the message flows</li>
+            <li><strong>Practice scenarios:</strong> Work through examples with different f values</li>
+            <li><strong>Think about attacks:</strong> How would you try to break the system? How does PBFT prevent it?</li>
+        </ol>
+
+        <h2>Summary</h2>
+        <p><strong>Byzantine Fault Tolerance</strong> is about reaching consensus when some nodes might be actively malicious. The key insights are:</p>
+        <ol>
+            <li><strong>You need 3f + 1 nodes</strong> to tolerate f Byzantine faults</li>
+            <li><strong>PBFT uses three phases</strong> (Pre-prepare, Prepare, Commit) to ensure all honest nodes agree</li>
+            <li><strong>Quorums of 2f + 1</strong> guarantee overlap of honest nodes</li>
+            <li><strong>View changes</strong> allow the system to recover from a faulty primary</li>
+            <li><strong>Applications</strong> include blockchains, critical infrastructure, and secure distributed systems</li>
+        </ol>
+
+        <p>PBFT made Byzantine fault tolerance <strong>practical</strong> for real-world systems by working in asynchronous networks and achieving reasonable performance while maintaining strong security guarantees.</p>
+
+        <div class="callout-success">
+            <strong>Good luck with your exam!</strong>
+            <p>Remember: even if some study materials are corrupted or missing (Byzantine faults!), if you've studied this guide and your lecture notes, you'll have enough knowledge (2f + 1 sources) to reach consensus on the right answers!</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 CS 416 Study Guide | Distributed Systems</p>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+    <script>
+        // ========================================
+        // VISUALIZATION 1: Failure Types Comparison
+        // ========================================
+        function animateFailureTypes() {
+            const container = document.getElementById('failure-types-viz');
+            container.innerHTML = `
+                <svg width="100%" height="400" viewBox="0 0 1000 400" style="max-width: 100%;">
+                    <!-- Crash Failure -->
+                    <g transform="translate(120, 200)">
+                        <text x="0" y="-120" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">Crash Failure</text>
+                        <circle cx="0" cy="0" r="40" fill="#95a5a6" stroke="#7f8c8d" stroke-width="3"/>
+                        <text x="0" y="5" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N1</text>
+                        <text x="0" y="-65" text-anchor="middle" fill="#7f8c8d" style="font-size: 14px;">OFFLINE</text>
+                        <line x1="-80" y1="0" x2="-50" y2="0" stroke="#7f8c8d" stroke-width="2"/>
+                        <text x="-90" y="5" text-anchor="end" style="font-size: 12px;">Message</text>
+                        <circle cx="-60" cy="0" r="4" fill="#e74c3c">
+                            <animate attributeName="opacity" values="1;0;1" dur="1.5s" repeatCount="indefinite"/>
+                        </circle>
+                        <text x="0" y="80" text-anchor="middle" style="font-size: 12px; fill: #7f8c8d;">Node stopped responding</text>
+                    </g>
+
+                    <!-- Omission Failure -->
+                    <g transform="translate(500, 200)">
+                        <text x="0" y="-120" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">Omission Failure</text>
+                        <circle cx="0" cy="0" r="40" fill="#f39c12" stroke="#e67e22" stroke-width="3"/>
+                        <text x="0" y="5" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N2</text>
+                        <text x="0" y="-65" text-anchor="middle" fill="#f39c12" style="font-size: 14px;">PARTIAL</text>
+
+                        <!-- Incoming messages - some dropped -->
+                        <g class="omission-msg-1">
+                            <line x1="-80" y1="-20" x2="-50" y2="-10" stroke="#3498db" stroke-width="2"/>
+                            <circle cx="-60" cy="-17" r="4" fill="#3498db">
+                                <animate attributeName="cx" from="-80" to="-50" dur="1s" repeatCount="indefinite"/>
+                                <animate attributeName="cy" from="-20" to="-10" dur="1s" repeatCount="indefinite"/>
+                            </circle>
+                        </g>
+                        <g class="omission-msg-2">
+                            <line x1="-80" y1="20" x2="-60" y2="15" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4,4"/>
+                            <circle cx="-70" cy="17" r="4" fill="#e74c3c">
+                                <animate attributeName="opacity" values="1;0" dur="1.2s" repeatCount="indefinite"/>
+                            </circle>
+                        </g>
+
+                        <text x="0" y="80" text-anchor="middle" style="font-size: 12px; fill: #7f8c8d;">Drops some messages</text>
+                    </g>
+
+                    <!-- Byzantine Failure -->
+                    <g transform="translate(880, 200)">
+                        <text x="0" y="-120" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">Byzantine Failure</text>
+                        <circle cx="0" cy="0" r="40" fill="#e74c3c" stroke="#c0392b" stroke-width="3"/>
+                        <text x="0" y="5" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N3</text>
+                        <text x="0" y="-65" text-anchor="middle" fill="#e74c3c" style="font-size: 14px;">MALICIOUS</text>
+
+                        <!-- Different messages to different recipients -->
+                        <g class="byzantine-msg-1">
+                            <line x1="30" y1="-30" x2="70" y2="-60" stroke="#e74c3c" stroke-width="2"/>
+                            <text x="80" y="-65" style="font-size: 11px; fill: #e74c3c;">"A"</text>
+                        </g>
+                        <g class="byzantine-msg-2">
+                            <line x1="30" y1="30" x2="70" y2="60" stroke="#e74c3c" stroke-width="2"/>
+                            <text x="80" y="70" style="font-size: 11px; fill: #e74c3c;">"B"</text>
+                        </g>
+
+                        <text x="0" y="80" text-anchor="middle" style="font-size: 12px; fill: #7f8c8d;">Sends conflicting data</text>
+                    </g>
+                </svg>
+            `;
+        }
+
+        // ========================================
+        // VISUALIZATION 2: Byzantine Generals Problem
+        // ========================================
+        let generalsScenario = 1;
+        let generalsStep = 0;
+
+        function setGeneralsScenario(scenario) {
+            generalsScenario = scenario;
+            generalsStep = 0;
+            document.querySelectorAll('[id^="scenario"]').forEach(btn => {
+                btn.style.background = 'var(--border-color)';
+            });
+            document.getElementById(`scenario${scenario}-btn`).style.background = 'var(--secondary-color)';
+            renderGenerals();
+        }
+
+        function nextGeneralsStep() {
+            const maxSteps = generalsScenario === 1 ? 5 : 4;
+            if (generalsStep < maxSteps) {
+                generalsStep++;
+                renderGenerals();
+            }
+        }
+
+        function prevGeneralsStep() {
+            if (generalsStep > 0) {
+                generalsStep--;
+                renderGenerals();
+            }
+        }
+
+        function resetGenerals() {
+            generalsStep = 0;
+            renderGenerals();
+        }
+
+        function renderGenerals() {
+            const container = document.getElementById('generals-viz');
+            const explanation = document.getElementById('generals-explanation');
+
+            const generals = [
+                { name: 'Alice', role: 'Commander', x: 500, y: 100, isTraitor: generalsScenario === 2 },
+                { name: 'Bob', role: 'Lieutenant', x: 300, y: 300, isTraitor: false },
+                { name: 'Carol', role: 'Lieutenant', x: 700, y: 300, isTraitor: false },
+                { name: 'Dave', role: 'Lieutenant', x: 500, y: 450, isTraitor: generalsScenario === 1 }
+            ];
+
+            let svg = `<svg width="100%" height="500" viewBox="0 0 1000 500" style="max-width: 100%;">
+                <!-- City in center -->
+                <rect x="450" y="250" width="100" height="80" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="2"/>
+                <text x="500" y="295" text-anchor="middle" style="font-size: 14px; font-weight: bold;">City</text>
+            `;
+
+            // Draw generals
+            generals.forEach((gen, idx) => {
+                const color = gen.isTraitor ? '#e74c3c' : '#3498db';
+                svg += `<g>
+                    <circle cx="${gen.x}" cy="${gen.y}" r="35" fill="${color}" stroke="${gen.isTraitor ? '#c0392b' : '#2980b9'}" stroke-width="3"/>
+                    <text x="${gen.x}" y="${gen.y - 5}" text-anchor="middle" fill="white" style="font-size: 14px; font-weight: bold;">${gen.name}</text>
+                    <text x="${gen.x}" y="${gen.y + 10}" text-anchor="middle" fill="white" style="font-size: 10px;">${gen.role}</text>
+                    ${gen.isTraitor ? `<text x="${gen.x}" y="${gen.y + 55}" text-anchor="middle" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">TRAITOR</text>` : ''}
+                </g>`;
+            });
+
+            // Draw messages based on step
+            if (generalsScenario === 1) {
+                // Scenario 1: Alice loyal, Dave is traitor
+                const explanations = [
+                    'Step 0: Initial state - Alice is the loyal commander, but Dave is a traitor.',
+                    'Step 1: Alice sends "ATTACK" to all lieutenants.',
+                    'Step 2: Bob receives "ATTACK" from Alice.',
+                    'Step 3: Carol receives "ATTACK" from Alice. Dave (traitor) receives "ATTACK" but plans to lie.',
+                    'Step 4: Dave tells Bob: "Alice said RETREAT" (lying!)',
+                    'Step 5: Dave tells Carol: "Alice said ATTACK" (telling truth to cause confusion). Bob and Carol must figure out the truth!'
+                ];
+                explanation.innerHTML = `<strong>Scenario 1: Traitor Lieutenant</strong><br>${explanations[generalsStep]}`;
+
+                if (generalsStep >= 1) {
+                    // Alice to Bob
+                    svg += `<line x1="500" y1="135" x2="320" y2="270" stroke="#27ae60" stroke-width="2" marker-end="url(#arrowgreen)"/>
+                    <text x="400" y="190" fill="#27ae60" style="font-size: 12px; font-weight: bold;">ATTACK</text>`;
+                }
+                if (generalsStep >= 2) {
+                    // Alice to Carol
+                    svg += `<line x1="500" y1="135" x2="680" y2="270" stroke="#27ae60" stroke-width="2" marker-end="url(#arrowgreen)"/>
+                    <text x="600" y="190" fill="#27ae60" style="font-size: 12px; font-weight: bold;">ATTACK</text>`;
+                }
+                if (generalsStep >= 3) {
+                    // Alice to Dave
+                    svg += `<line x1="500" y1="135" x2="500" y2="415" stroke="#27ae60" stroke-width="2" marker-end="url(#arrowgreen)"/>
+                    <text x="520" y="275" fill="#27ae60" style="font-size: 12px; font-weight: bold;">ATTACK</text>`;
+                }
+                if (generalsStep >= 4) {
+                    // Dave to Bob (lying)
+                    svg += `<line x1="465" y1="435" x2="330" y2="330" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrowred)"/>
+                    <text x="380" y="380" fill="#e74c3c" style="font-size: 11px; font-weight: bold;">RETREAT</text>`;
+                }
+                if (generalsStep >= 5) {
+                    // Dave to Carol
+                    svg += `<line x1="535" y1="435" x2="670" y2="330" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrowred)"/>
+                    <text x="620" y="380" fill="#e74c3c" style="font-size: 11px; font-weight: bold;">ATTACK</text>`;
+                }
+            } else {
+                // Scenario 2: Alice is traitor
+                const explanations = [
+                    'Step 0: Alice (commander) is the traitor. She will send different orders to different lieutenants.',
+                    'Step 1: Alice tells Bob: "ATTACK"',
+                    'Step 2: Alice tells Carol: "RETREAT"',
+                    'Step 3: Alice tells Dave: "ATTACK"',
+                    'Step 4: Lieutenants share what they heard. They must agree on something (even if they ignore Alice) to stay coordinated!'
+                ];
+                explanation.innerHTML = `<strong>Scenario 2: Traitor Commander</strong><br>${explanations[generalsStep]}`;
+
+                if (generalsStep >= 1) {
+                    svg += `<line x1="500" y1="135" x2="320" y2="270" stroke="#e74c3c" stroke-width="2" marker-end="url(#arrowred)"/>
+                    <text x="400" y="190" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">ATTACK</text>`;
+                }
+                if (generalsStep >= 2) {
+                    svg += `<line x1="500" y1="135" x2="680" y2="270" stroke="#e74c3c" stroke-width="2" marker-end="url(#arrowred)"/>
+                    <text x="600" y="190" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">RETREAT</text>`;
+                }
+                if (generalsStep >= 3) {
+                    svg += `<line x1="500" y1="135" x2="500" y2="415" stroke="#e74c3c" stroke-width="2" marker-end="url(#arrowred)"/>
+                    <text x="520" y="275" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">ATTACK</text>`;
+                }
+                if (generalsStep >= 4) {
+                    svg += `<line x1="300" y1="330" x2="700" y2="330" stroke="#f39c12" stroke-width="1.5" stroke-dasharray="3,3"/>
+                    <line x1="300" y1="330" x2="500" y2="420" stroke="#f39c12" stroke-width="1.5" stroke-dasharray="3,3"/>
+                    <line x1="700" y1="330" x2="500" y2="420" stroke="#f39c12" stroke-width="1.5" stroke-dasharray="3,3"/>
+                    <text x="500" y="365" text-anchor="middle" fill="#f39c12" style="font-size: 11px;">Sharing info...</text>`;
+                }
+            }
+
+            svg += `
+                <defs>
+                    <marker id="arrowgreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#27ae60" />
+                    </marker>
+                    <marker id="arrowred" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#e74c3c" />
+                    </marker>
+                </defs>
+            </svg>`;
+
+            container.innerHTML = svg;
+        }
+
+        // ========================================
+        // VISUALIZATION 3: 3f + 1 Formula
+        // ========================================
+        function updateFormulaViz() {
+            const f = parseInt(document.getElementById('formula-f-slider').value);
+            const n = 3 * f + 1;
+
+            document.getElementById('formula-f-display').textContent = f;
+            document.getElementById('formula-n-display').textContent = n;
+            document.getElementById('formula-f-calc').textContent = f;
+            document.getElementById('formula-result').textContent = n;
+
+            const container = document.getElementById('formula-viz');
+            const quorumSize = 2 * f + 1;
+
+            let svg = `<svg width="100%" height="400" viewBox="0 0 1000 400" style="max-width: 100%;">
+                <text x="500" y="30" text-anchor="middle" style="font-size: 20px; font-weight: bold; fill: var(--primary-color);">System with ${n} nodes (max ${f} Byzantine)</text>
+            `;
+
+            // Draw nodes in a circle
+            const centerX = 500, centerY = 220, radius = 120;
+            for (let i = 0; i < n; i++) {
+                const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+                const isByzantine = i < f;
+                const color = isByzantine ? '#e74c3c' : '#27ae60';
+
+                svg += `<circle cx="${x}" cy="${y}" r="25" fill="${color}" stroke="${isByzantine ? '#c0392b' : '#229954'}" stroke-width="2"/>
+                <text x="${x}" y="${y + 5}" text-anchor="middle" fill="white" style="font-size: 14px; font-weight: bold;">N${i}</text>`;
+            }
+
+            // Highlight quorum
+            svg += `<circle cx="${centerX}" cy="${centerY}" r="${radius + 50}" fill="none" stroke="#3498db" stroke-width="3" stroke-dasharray="10,5"/>
+            <text x="${centerX}" y="${centerY + radius + 75}" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #3498db;">Quorum: ${quorumSize} nodes</text>`;
+
+            svg += `</svg>`;
+            container.innerHTML = svg;
+
+            const explanation = document.getElementById('formula-explanation');
+            explanation.innerHTML = `
+                <strong>Why ${n} nodes for ${f} faults?</strong><br>
+                • Total nodes: ${n} = 3 × ${f} + 1<br>
+                • Byzantine nodes (red): up to ${f}<br>
+                • Honest nodes (green): at least ${n - f} = ${2 * f + 1}<br>
+                • Quorum size: ${quorumSize} = 2 × ${f} + 1<br>
+                • This guarantees any two quorums overlap in at least ${f + 1} nodes, ensuring at least 1 honest node in common!
+            `;
+        }
+
+        // ========================================
+        // VISUALIZATION 4: PBFT Three-Phase Protocol
+        // ========================================
+        let pbftStep = 0;
+        let pbftByzantineMode = false;
+        let pbftInterval = null;
+
+        function updatePBFTMode() {
+            pbftByzantineMode = document.getElementById('pbft-byzantine-mode').checked;
+            pbftStep = 0;
+            renderPBFT();
+        }
+
+        function nextPBFTStep() {
+            if (pbftStep < 8) {
+                pbftStep++;
+                renderPBFT();
+            }
+        }
+
+        function prevPBFTStep() {
+            if (pbftStep > 0) {
+                pbftStep--;
+                renderPBFT();
+            }
+        }
+
+        function resetPBFT() {
+            pbftStep = 0;
+            if (pbftInterval) clearInterval(pbftInterval);
+            document.getElementById('pbft-play-btn').textContent = '▶ Auto Play';
+            renderPBFT();
+        }
+
+        function playPBFT() {
+            if (pbftInterval) {
+                clearInterval(pbftInterval);
+                pbftInterval = null;
+                document.getElementById('pbft-play-btn').textContent = '▶ Auto Play';
+            } else {
+                document.getElementById('pbft-play-btn').textContent = '⏸ Pause';
+                pbftInterval = setInterval(() => {
+                    if (pbftStep >= 8) {
+                        clearInterval(pbftInterval);
+                        pbftInterval = null;
+                        document.getElementById('pbft-play-btn').textContent = '▶ Auto Play';
+                        pbftStep = 0;
+                    } else {
+                        pbftStep++;
+                    }
+                    renderPBFT();
+                }, 1500);
+            }
+        }
+
+        function renderPBFT() {
+            const container = document.getElementById('pbft-viz');
+            const explanation = document.getElementById('pbft-explanation');
+            const messageLog = document.getElementById('pbft-message-log');
+
+            const nodes = [
+                { id: 'N0', x: 500, y: 150, primary: true },
+                { id: 'N1', x: 300, y: 350 },
+                { id: 'N2', x: 700, y: 350 },
+                { id: 'N3', x: 500, y: 500, byzantine: pbftByzantineMode }
+            ];
+
+            let svg = `<svg width="100%" height="600" viewBox="0 0 1000 600" style="max-width: 100%;">
+                <!-- Client -->
+                <g transform="translate(500, 50)">
+                    <rect x="-40" y="-25" width="80" height="50" fill="#16a085" stroke="#138d75" stroke-width="2" rx="5"/>
+                    <text x="0" y="5" text-anchor="middle" fill="white" style="font-size: 14px; font-weight: bold;">Client</text>
+                </g>
+            `;
+
+            // Draw nodes
+            nodes.forEach(node => {
+                const color = node.byzantine ? '#e74c3c' : (node.primary ? '#3498db' : '#27ae60');
+                svg += `<g>
+                    <circle cx="${node.x}" cy="${node.y}" r="40" fill="${color}" stroke="${node.byzantine ? '#c0392b' : (node.primary ? '#2980b9' : '#229954')}" stroke-width="3"/>
+                    <text x="${node.x}" y="${node.y + 5}" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">${node.id}</text>
+                    ${node.primary ? `<text x="${node.x}" y="${node.y - 55}" text-anchor="middle" fill="#3498db" style="font-size: 14px;">👑 Primary</text>` : ''}
+                    ${node.byzantine ? `<text x="${node.x}" y="${node.y + 65}" text-anchor="middle" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">Byzantine</text>` : ''}
+                </g>`;
+            });
+
+            let messages = [];
+            let explainText = '';
+
+            // Step-by-step protocol
+            if (pbftStep >= 1) {
+                // Client request
+                svg += `<line x1="500" y1="75" x2="500" y2="110" stroke="#16a085" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="520" y="95" fill="#16a085" style="font-size: 12px;">Request</text>`;
+                explainText = '<strong>Step 1: Client Request</strong><br>Client sends request to primary N0.';
+                messages.push('[Client → N0] REQUEST: Transfer $100');
+            }
+
+            if (pbftStep >= 2) {
+                // Pre-Prepare phase
+                svg += `
+                    <line x1="500" y1="190" x2="300" y2="310" stroke="#3498db" stroke-width="2" marker-end="url(#arrow)"/>
+                    <line x1="500" y1="190" x2="700" y2="310" stroke="#3498db" stroke-width="2" marker-end="url(#arrow)"/>
+                    <line x1="500" y1="190" x2="500" y2="460" stroke="#3498db" stroke-width="2" marker-end="url(#arrow)"/>
+                `;
+                explainText = '<strong>Step 2: PRE-PREPARE</strong><br>Primary N0 broadcasts PRE-PREPARE⟨v=0, n=42, digest⟩ to all replicas.';
+                messages.push('[N0 → All] PRE-PREPARE⟨v=0, n=42, d=hash⟩');
+            }
+
+            if (pbftStep >= 3) {
+                // Prepare phase - N1
+                svg += `
+                    <line x1="300" y1="350" x2="500" y2="150" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                    <line x1="300" y1="350" x2="700" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                    <line x1="300" y1="350" x2="480" y2="490" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                `;
+                explainText = '<strong>Step 3: PREPARE (N1)</strong><br>N1 accepts PRE-PREPARE and broadcasts PREPARE to all nodes.';
+                messages.push('[N1 → All] PREPARE⟨v=0, n=42, d=hash, i=1⟩');
+            }
+
+            if (pbftStep >= 4) {
+                // Prepare phase - N2
+                svg += `
+                    <line x1="700" y1="350" x2="500" y2="150" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                    <line x1="700" y1="350" x2="300" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                    <line x1="700" y1="350" x2="520" y2="490" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                `;
+                explainText = '<strong>Step 4: PREPARE (N2)</strong><br>N2 accepts PRE-PREPARE and broadcasts PREPARE to all nodes.';
+                messages.push('[N2 → All] PREPARE⟨v=0, n=42, d=hash, i=2⟩');
+            }
+
+            if (pbftStep >= 5) {
+                // Prepare phase - N0 and N3
+                svg += `<line x1="500" y1="190" x2="300" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                <line x1="500" y1="190" x2="700" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>`;
+
+                if (pbftByzantineMode) {
+                    svg += `<line x1="500" y1="460" x2="300" y2="350" stroke="#e74c3c" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrow)"/>
+                    <text x="380" y="400" fill="#e74c3c" style="font-size: 10px;">WRONG!</text>`;
+                    explainText = '<strong>Step 5: PREPARE (N0, N3)</strong><br>N0 sends PREPARE. N3 (Byzantine) sends conflicting message!';
+                    messages.push('[N0 → All] PREPARE⟨v=0, n=42, d=hash, i=0⟩');
+                    messages.push('[N3 → All] PREPARE⟨v=0, n=99, d=BAD, i=3⟩ ❌');
+                } else {
+                    svg += `<line x1="500" y1="460" x2="300" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>
+                    <line x1="500" y1="460" x2="700" y2="350" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrow)"/>`;
+                    explainText = '<strong>Step 5: PREPARE (N0, N3)</strong><br>N0 and N3 send PREPARE. Each node now has 2f+1=3 matching PREPAREs.';
+                    messages.push('[N0 → All] PREPARE⟨v=0, n=42, d=hash, i=0⟩');
+                    messages.push('[N3 → All] PREPARE⟨v=0, n=42, d=hash, i=3⟩');
+                }
+            }
+
+            if (pbftStep >= 6) {
+                // Commit phase
+                explainText = '<strong>Step 6: COMMIT</strong><br>Nodes with 2f+1 PREPAREs broadcast COMMIT messages.';
+                messages.push('[N0, N1, N2 → All] COMMIT⟨v=0, n=42, d=hash⟩');
+            }
+
+            if (pbftStep >= 7) {
+                explainText = '<strong>Step 7: Collect COMMITs</strong><br>Each honest node collects 2f+1=3 matching COMMITs and can execute.';
+            }
+
+            if (pbftStep >= 8) {
+                // Execute and Reply
+                svg += `
+                    <line x1="300" y1="310" x2="480" y2="75" stroke="#16a085" stroke-width="2" marker-end="url(#arrow)"/>
+                    <line x1="700" y1="310" x2="520" y2="75" stroke="#16a085" stroke-width="2" marker-end="url(#arrow)"/>
+                    <line x1="500" y1="150" x2="500" y2="75" stroke="#16a085" stroke-width="2" marker-end="url(#arrow)"/>
+                `;
+                explainText = '<strong>Step 8: Execute & Reply</strong><br>N0, N1, N2 execute the request and send replies to client. Client waits for f+1=2 matching replies.';
+                messages.push('[N0, N1, N2 → Client] REPLY: Success');
+            }
+
+            svg += `
+                <defs>
+                    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#2c3e50" />
+                    </marker>
+                </defs>
+            </svg>`;
+
+            container.innerHTML = svg;
+            explanation.innerHTML = explainText;
+            messageLog.innerHTML = `<strong>Message Log:</strong><br>` + messages.join('<br>');
+        }
+
+        // ========================================
+        // VISUALIZATION 5: PBFT Example Walkthrough
+        // ========================================
+        let exampleStep = 0;
+
+        function nextExampleStep() {
+            if (exampleStep < 6) {
+                exampleStep++;
+                renderExample();
+            }
+        }
+
+        function prevExampleStep() {
+            if (exampleStep > 0) {
+                exampleStep--;
+                renderExample();
+            }
+        }
+
+        function resetExample() {
+            exampleStep = 0;
+            renderExample();
+        }
+
+        function renderExample() {
+            const container = document.getElementById('pbft-example-viz');
+            const explanation = document.getElementById('example-explanation');
+
+            const nodes = [
+                { id: 'N0', x: 250, y: 250, primary: true, prepares: 0, commits: 0 },
+                { id: 'N1', x: 550, y: 250, prepares: 0, commits: 0 },
+                { id: 'N2', x: 250, y: 450, prepares: 0, commits: 0 },
+                { id: 'N3', x: 550, y: 450, byzantine: true, prepares: 0, commits: 0 }
+            ];
+
+            // Update counters based on step
+            if (exampleStep >= 2) {
+                nodes.forEach(n => n.prepares = 1); // Own PREPARE
+            }
+            if (exampleStep >= 3) {
+                nodes.forEach(n => n.prepares = 3); // Collected 3 matching
+            }
+            if (exampleStep >= 4) {
+                nodes[0].commits = 1;
+                nodes[1].commits = 1;
+                nodes[2].commits = 1;
+            }
+            if (exampleStep >= 5) {
+                nodes[0].commits = 3;
+                nodes[1].commits = 3;
+                nodes[2].commits = 3;
+            }
+
+            let svg = `<svg width="100%" height="500" viewBox="0 0 800 500" style="max-width: 100%;">`;
+
+            // Draw nodes with counters
+            nodes.forEach(node => {
+                const color = node.byzantine ? '#e74c3c' : (node.primary ? '#3498db' : '#27ae60');
+                svg += `<g>
+                    <circle cx="${node.x}" cy="${node.y}" r="45" fill="${color}" stroke="${node.byzantine ? '#c0392b' : (node.primary ? '#2980b9' : '#229954')}" stroke-width="3"/>
+                    <text x="${node.x}" y="${node.y - 10}" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">${node.id}</text>
+                    ${node.primary ? `<text x="${node.x}" y="${node.y + 8}" text-anchor="middle" fill="white" style="font-size: 10px;">Primary</text>` : ''}
+                    ${node.byzantine ? `<text x="${node.x}" y="${node.y + 8}" text-anchor="middle" fill="white" style="font-size: 10px;">Byzantine</text>` : ''}
+
+                    <!-- Counters -->
+                    ${exampleStep >= 2 ? `<g transform="translate(${node.x - 60}, ${node.y - 15})">
+                        <rect x="0" y="0" width="45" height="30" fill="white" stroke="#27ae60" stroke-width="2" rx="3"/>
+                        <text x="22" y="12" text-anchor="middle" style="font-size: 9px; fill: #7f8c8d;">PREP</text>
+                        <text x="22" y="24" text-anchor="middle" style="font-size: 14px; font-weight: bold; fill: #27ae60;">${node.prepares}</text>
+                    </g>` : ''}
+
+                    ${exampleStep >= 4 ? `<g transform="translate(${node.x + 15}, ${node.y - 15})">
+                        <rect x="0" y="0" width="45" height="30" fill="white" stroke="#9b59b6" stroke-width="2" rx="3"/>
+                        <text x="22" y="12" text-anchor="middle" style="font-size: 9px; fill: #7f8c8d;">COMM</text>
+                        <text x="22" y="24" text-anchor="middle" style="font-size: 14px; font-weight: bold; fill: #9b59b6;">${node.commits}</text>
+                    </g>` : ''}
+                </g>`;
+            });
+
+            const explanations = [
+                '<strong>Initial State</strong><br>4-node system: N0 (Primary), N1, N2 (honest), N3 (Byzantine). Client wants to transfer $100.',
+                '<strong>PRE-PREPARE Phase</strong><br>N0 broadcasts PRE-PREPARE⟨v=0, seq=42, hash⟩ to all replicas.',
+                '<strong>PREPARE Phase</strong><br>Each node broadcasts PREPARE. N3 sends wrong sequence number but honest nodes ignore it.',
+                '<strong>Collected 2f+1 PREPAREs</strong><br>N0, N1, N2 each have 3 matching PREPAREs (from N0, N1, N2). Threshold reached! ✓',
+                '<strong>COMMIT Phase</strong><br>Honest nodes broadcast COMMIT messages.',
+                '<strong>Collected 2f+1 COMMITs</strong><br>Each honest node has 3 matching COMMITs. Ready to execute! ✓',
+                '<strong>Execute & Reply</strong><br>N0, N1, N2 execute the transfer and reply to client. Client gets f+1=2 matching replies. Success! ✓'
+            ];
+
+            svg += `</svg>`;
+            container.innerHTML = svg;
+            explanation.innerHTML = explanations[exampleStep];
+        }
+
+        // ========================================
+        // VISUALIZATION 6: Quorum Intersection
+        // ========================================
+        function updateQuorumViz() {
+            const f = parseInt(document.getElementById('quorum-f-slider').value);
+            const n = 3 * f + 1;
+            const quorumSize = 2 * f + 1;
+
+            document.getElementById('quorum-f-display').textContent = f;
+            document.getElementById('quorum-total').textContent = n;
+            document.getElementById('quorum-size').textContent = quorumSize;
+
+            renderQuorumIntersection(f, n, quorumSize);
+        }
+
+        function randomizeQuorums() {
+            const f = parseInt(document.getElementById('quorum-f-slider').value);
+            const n = 3 * f + 1;
+            const quorumSize = 2 * f + 1;
+            renderQuorumIntersection(f, n, quorumSize, true);
+        }
+
+        function renderQuorumIntersection(f, n, quorumSize, randomize = false) {
+            const container = document.getElementById('quorum-viz');
+            const explanation = document.getElementById('quorum-explanation');
+
+            // Create two quorums
+            let quorum1 = [];
+            let quorum2 = [];
+
+            if (randomize) {
+                // Random selection
+                const allNodes = Array.from({length: n}, (_, i) => i);
+                quorum1 = allNodes.sort(() => 0.5 - Math.random()).slice(0, quorumSize);
+                quorum2 = allNodes.sort(() => 0.5 - Math.random()).slice(0, quorumSize);
+            } else {
+                // Default: first quorumSize and last quorumSize
+                quorum1 = Array.from({length: quorumSize}, (_, i) => i);
+                quorum2 = Array.from({length: quorumSize}, (_, i) => n - quorumSize + i);
+            }
+
+            const intersection = quorum1.filter(x => quorum2.includes(x));
+            const byzantineNodes = Array.from({length: f}, (_, i) => i);
+            const honestInIntersection = intersection.filter(x => !byzantineNodes.includes(x));
+
+            let svg = `<svg width="100%" height="450" viewBox="0 0 1000 450" style="max-width: 100%;">
+                <text x="500" y="30" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">Quorum Intersection Guarantees Honest Overlap</text>
+
+                <!-- Quorum 1 circle -->
+                <circle cx="350" cy="250" r="150" fill="rgba(52, 152, 219, 0.2)" stroke="#3498db" stroke-width="3"/>
+                <text x="250" y="120" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #3498db;">Quorum 1</text>
+                <text x="250" y="140" text-anchor="middle" style="font-size: 14px; fill: #3498db;">(${quorumSize} nodes)</text>
+
+                <!-- Quorum 2 circle -->
+                <circle cx="650" cy="250" r="150" fill="rgba(155, 89, 182, 0.2)" stroke="#9b59b6" stroke-width="3"/>
+                <text x="750" y="120" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #9b59b6;">Quorum 2</text>
+                <text x="750" y="140" text-anchor="middle" style="font-size: 14px; fill: #9b59b6;">(${quorumSize} nodes)</text>
+
+                <!-- Intersection highlight -->
+                <text x="500" y="250" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: var(--success-color);">Intersection</text>
+                <text x="500" y="270" text-anchor="middle" style="font-size: 14px; fill: var(--success-color);">${intersection.length} nodes</text>
+                <text x="500" y="290" text-anchor="middle" style="font-size: 13px; font-weight: bold; fill: var(--success-color);">${honestInIntersection.length} honest ✓</text>
+            `;
+
+            // Draw all nodes
+            const allNodesY = 400;
+            const spacing = 800 / (n + 1);
+            for (let i = 0; i < n; i++) {
+                const x = 100 + spacing * (i + 1);
+                const isByzantine = byzantineNodes.includes(i);
+                const inQ1 = quorum1.includes(i);
+                const inQ2 = quorum2.includes(i);
+                const inBoth = inQ1 && inQ2;
+
+                let fillColor = isByzantine ? '#e74c3c' : '#27ae60';
+                let strokeColor = isByzantine ? '#c0392b' : '#229954';
+                let strokeWidth = 2;
+
+                if (inBoth) {
+                    strokeColor = '#f39c12';
+                    strokeWidth = 4;
+                }
+
+                svg += `<circle cx="${x}" cy="${allNodesY}" r="15" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>
+                <text x="${x}" y="${allNodesY + 5}" text-anchor="middle" fill="white" style="font-size: 11px; font-weight: bold;">${i}</text>`;
+            }
+
+            // Legend
+            svg += `
+                <g transform="translate(50, 50)">
+                    <circle cx="0" cy="0" r="10" fill="#27ae60" stroke="#229954" stroke-width="2"/>
+                    <text x="20" y="5" style="font-size: 12px;">Honest Node</text>
+
+                    <circle cx="0" cy="30" r="10" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
+                    <text x="20" y="35" style="font-size: 12px;">Byzantine Node</text>
+
+                    <circle cx="0" cy="60" r="10" fill="#27ae60" stroke="#f39c12" stroke-width="4"/>
+                    <text x="20" y="65" style="font-size: 12px;">In Both Quorums</text>
+                </g>
+            `;
+
+            svg += `</svg>`;
+            container.innerHTML = svg;
+
+            explanation.innerHTML = `
+                <strong>Mathematical Guarantee:</strong><br>
+                • Any two quorums of size ${quorumSize} must intersect in at least <strong>${intersection.length}</strong> nodes<br>
+                • With at most ${f} Byzantine nodes, intersection has at least <strong>${honestInIntersection.length}</strong> honest nodes<br>
+                • Formula: Intersection size ≥ 2(2f+1) - (3f+1) = ${2 * quorumSize - n} = <strong>f+1 = ${f + 1}</strong><br>
+                • Since f = ${f}, we're guaranteed at least <strong>${f + 1 - f} = 1 honest node</strong> in every quorum intersection! ✓
+            `;
+        }
+
+        // ========================================
+        // VISUALIZATION 7: Attack Scenarios
+        // ========================================
+        let attackScenario = 1;
+        let attackStep = 0;
+
+        function setAttackScenario(scenario) {
+            attackScenario = scenario;
+            attackStep = 0;
+            document.querySelectorAll('[id^="attack"]').forEach(btn => {
+                btn.style.background = 'var(--border-color)';
+            });
+            document.getElementById(`attack${scenario}-btn`).style.background = 'var(--secondary-color)';
+            renderAttack();
+        }
+
+        function nextAttackStep() {
+            const maxSteps = attackScenario === 1 ? 4 : (attackScenario === 2 ? 3 : 3);
+            if (attackStep < maxSteps) {
+                attackStep++;
+                renderAttack();
+            }
+        }
+
+        function prevAttackStep() {
+            if (attackStep > 0) {
+                attackStep--;
+                renderAttack();
+            }
+        }
+
+        function resetAttack() {
+            attackStep = 0;
+            renderAttack();
+        }
+
+        function renderAttack() {
+            const container = document.getElementById('attack-viz');
+            const explanation = document.getElementById('attack-explanation');
+
+            if (attackScenario === 1) {
+                // Byzantine Primary
+                const explanations = [
+                    '<strong>Attack 1: Byzantine Primary</strong><br>Primary N0 is malicious and tries to send different values to different replicas.',
+                    'N0 sends PRE-PREPARE with value "A" to N1 and value "B" to N2.',
+                    'During PREPARE phase, N1 broadcasts "prepared A" and N2 broadcasts "prepared B".',
+                    'Honest nodes see the conflict! They won\'t reach 2f+1 agreement.',
+                    'Timeout occurs → View change initiated → New primary elected! PBFT defends against this attack. ✓'
+                ];
+
+                let svg = `<svg width="100%" height="500" viewBox="0 0 800 500">
+                    <!-- Nodes -->
+                    <circle cx="400" cy="100" r="40" fill="#e74c3c" stroke="#c0392b" stroke-width="3"/>
+                    <text x="400" y="105" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N0</text>
+                    <text x="400" y="55" text-anchor="middle" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">Byzantine Primary</text>
+
+                    <circle cx="250" cy="300" r="40" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+                    <text x="250" y="305" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N1</text>
+
+                    <circle cx="550" cy="300" r="40" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+                    <text x="550" y="305" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N2</text>
+
+                    <circle cx="400" cy="450" r="40" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+                    <text x="400" y="455" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N3</text>
+                `;
+
+                if (attackStep >= 1) {
+                    svg += `<line x1="380" y1="135" x2="265" y2="265" stroke="#e74c3c" stroke-width="2" marker-end="url(#arrow-attack)"/>
+                    <text x="300" y="190" fill="#e74c3c" style="font-size: 14px; font-weight: bold;">"A"</text>
+                    <line x1="420" y1="135" x2="535" y2="265" stroke="#e74c3c" stroke-width="2" marker-end="url(#arrow-attack)"/>
+                    <text x="500" y="190" fill="#e74c3c" style="font-size: 14px; font-weight: bold;">"B"</text>`;
+                }
+
+                if (attackStep >= 2) {
+                    svg += `<line x1="250" y1="260" x2="550" y2="260" stroke="#f39c12" stroke-width="2" stroke-dasharray="5,5"/>
+                    <text x="400" y="250" text-anchor="middle" fill="#f39c12" style="font-size: 12px;">N1: "prepared A"</text>`;
+                }
+
+                if (attackStep >= 3) {
+                    svg += `<text x="400" y="380" text-anchor="middle" fill="#e74c3c" style="font-size: 16px; font-weight: bold;">⚠ CONFLICT DETECTED!</text>`;
+                }
+
+                if (attackStep >= 4) {
+                    svg += `<rect x="250" y="420" width="300" height="60" fill="rgba(243, 156, 18, 0.2)" stroke="#f39c12" stroke-width="2" rx="5"/>
+                    <text x="400" y="445" text-anchor="middle" fill="#f39c12" style="font-size: 14px; font-weight: bold;">VIEW-CHANGE Initiated</text>
+                    <text x="400" y="465" text-anchor="middle" fill="#f39c12" style="font-size: 12px;">New Primary: N1</text>`;
+                }
+
+                svg += `<defs><marker id="arrow-attack" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#e74c3c"/></marker></defs></svg>`;
+                container.innerHTML = svg;
+                explanation.innerHTML = explanations[attackStep];
+
+            } else if (attackScenario === 2) {
+                // Byzantine Replica
+                const explanations = [
+                    '<strong>Attack 2: Byzantine Replica</strong><br>One replica (N3) is Byzantine and sends conflicting PREPARE messages.',
+                    'Primary sends valid PRE-PREPARE. N3 sends different PREPARE messages to different nodes.',
+                    'Honest nodes collect messages. They have 2f+1=3 matching PREPAREs from N0, N1, N2.',
+                    'N3\'s conflicting vote doesn\'t matter! Honest nodes proceed with quorum of 3. PBFT defends against this attack. ✓'
+                ];
+
+                let svg = `<svg width="100%" height="500" viewBox="0 0 800 500">
+                    <circle cx="400" cy="100" r="40" fill="#3498db" stroke="#2980b9" stroke-width="3"/>
+                    <text x="400" y="105" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N0</text>
+                    <text x="400" y="55" text-anchor="middle" fill="#3498db" style="font-size: 12px;">Primary</text>
+
+                    <circle cx="250" cy="300" r="40" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+                    <text x="250" y="305" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N1</text>
+
+                    <circle cx="550" cy="300" r="40" fill="#27ae60" stroke="#229954" stroke-width="3"/>
+                    <text x="550" y="305" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N2</text>
+
+                    <circle cx="400" cy="450" r="40" fill="#e74c3c" stroke="#c0392b" stroke-width="3"/>
+                    <text x="400" y="455" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">N3</text>
+                    <text x="400" y="485" text-anchor="middle" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">Byzantine</text>
+                `;
+
+                if (attackStep >= 1) {
+                    svg += `<line x1="380" y1="410" x2="265" y2="335" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrow-attack)"/>
+                    <text x="300" y="365" fill="#e74c3c" style="font-size: 12px;">"X"</text>
+                    <line x1="420" y1="410" x2="535" y2="335" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,5" marker-end="url(#arrow-attack)"/>
+                    <text x="500" y="365" fill="#e74c3c" style="font-size: 12px;">"Y"</text>`;
+                }
+
+                if (attackStep >= 2) {
+                    svg += `<rect x="180" y="200" width="120" height="50" fill="rgba(39, 174, 96, 0.2)" stroke="#27ae60" stroke-width="2" rx="5"/>
+                    <text x="240" y="220" text-anchor="middle" fill="#27ae60" style="font-size: 11px; font-weight: bold;">N1 collected:</text>
+                    <text x="240" y="240" text-anchor="middle" fill="#27ae60" style="font-size: 10px;">N0, N1, N2 ✓</text>
+
+                    <rect x="500" y="200" width="120" height="50" fill="rgba(39, 174, 96, 0.2)" stroke="#27ae60" stroke-width="2" rx="5"/>
+                    <text x="560" y="220" text-anchor="middle" fill="#27ae60" style="font-size: 11px; font-weight: bold;">N2 collected:</text>
+                    <text x="560" y="240" text-anchor="middle" fill="#27ae60" style="font-size: 10px;">N0, N1, N2 ✓</text>`;
+                }
+
+                if (attackStep >= 3) {
+                    svg += `<rect x="280" y="380" width="240" height="40" fill="rgba(39, 174, 96, 0.2)" stroke="#27ae60" stroke-width="3" rx="5"/>
+                    <text x="400" y="405" text-anchor="middle" fill="#27ae60" style="font-size: 14px; font-weight: bold;">Quorum: 2f+1 = 3 ✓</text>`;
+                }
+
+                svg += `<defs><marker id="arrow-attack" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#e74c3c"/></marker></defs></svg>`;
+                container.innerHTML = svg;
+                explanation.innerHTML = explanations[attackStep];
+
+            } else {
+                // Collusion
+                const explanations = [
+                    '<strong>Attack 3: Colluding Byzantine Nodes</strong><br>In a 7-node system (f=2), two Byzantine nodes (N5, N6) collude to disrupt consensus.',
+                    'Even with 2 Byzantine nodes colluding, the quorum size is 2f+1 = 5.',
+                    'Quorum of 5 nodes must include at least 5 - 2 = 3 honest nodes.',
+                    'The f+1 = 3 honest nodes in the quorum guarantee safety! PBFT defends against collusion. ✓'
+                ];
+
+                let svg = `<svg width="100%" height="500" viewBox="0 0 900 500">
+                    <text x="450" y="40" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">7-Node System (f=2)</text>
+                `;
+
+                const nodes = [
+                    {id: 'N0', x: 450, y: 120, honest: true, primary: true},
+                    {id: 'N1', x: 250, y: 200, honest: true},
+                    {id: 'N2', x: 650, y: 200, honest: true},
+                    {id: 'N3', x: 200, y: 350, honest: true},
+                    {id: 'N4', x: 700, y: 350, honest: true},
+                    {id: 'N5', x: 350, y: 430, honest: false},
+                    {id: 'N6', x: 550, y: 430, honest: false}
+                ];
+
+                nodes.forEach(node => {
+                    const color = node.honest ? (node.primary ? '#3498db' : '#27ae60') : '#e74c3c';
+                    const stroke = node.honest ? (node.primary ? '#2980b9' : '#229954') : '#c0392b';
+                    svg += `<circle cx="${node.x}" cy="${node.y}" r="35" fill="${color}" stroke="${stroke}" stroke-width="3"/>
+                    <text x="${node.x}" y="${node.y + 5}" text-anchor="middle" fill="white" style="font-size: 14px; font-weight: bold;">${node.id}</text>`;
+                });
+
+                if (attackStep >= 1) {
+                    // Show collusion
+                    svg += `<line x1="350" y1="430" x2="550" y2="430" stroke="#e74c3c" stroke-width="3" stroke-dasharray="5,5"/>
+                    <text x="450" y="455" text-anchor="middle" fill="#e74c3c" style="font-size: 12px; font-weight: bold;">Colluding</text>`;
+                }
+
+                if (attackStep >= 2) {
+                    // Highlight quorum
+                    svg += `<ellipse cx="450" cy="280" rx="280" ry="200" fill="none" stroke="#f39c12" stroke-width="3" stroke-dasharray="10,5"/>
+                    <text x="100" y="280" fill="#f39c12" style="font-size: 14px; font-weight: bold;">Quorum = 5</text>`;
+                }
+
+                if (attackStep >= 3) {
+                    svg += `<rect x="250" y="100" width="400" height="80" fill="rgba(39, 174, 96, 0.2)" stroke="#27ae60" stroke-width="3" rx="5"/>
+                    <text x="450" y="125" text-anchor="middle" fill="#27ae60" style="font-size: 14px; font-weight: bold;">Honest Nodes in Quorum ≥ f+1</text>
+                    <text x="450" y="145" text-anchor="middle" fill="#27ae60" style="font-size: 13px;">Quorum(5) - Byzantine(2) = 3 honest ✓</text>
+                    <text x="450" y="165" text-anchor="middle" fill="#27ae60" style="font-size: 12px;">Consensus is guaranteed!</text>`;
+                }
+
+                svg += `</svg>`;
+                container.innerHTML = svg;
+                explanation.innerHTML = explanations[attackStep];
+            }
+        }
+
+        // ========================================
+        // VISUALIZATION 8: View Change Process
+        // ========================================
+        let viewChangeStep = 0;
+
+        function nextViewChangeStep() {
+            if (viewChangeStep < 7) {
+                viewChangeStep++;
+                renderViewChange();
+            }
+        }
+
+        function prevViewChangeStep() {
+            if (viewChangeStep > 0) {
+                viewChangeStep--;
+                renderViewChange();
+            }
+        }
+
+        function resetViewChange() {
+            viewChangeStep = 0;
+            renderViewChange();
+        }
+
+        function renderViewChange() {
+            const container = document.getElementById('viewchange-viz');
+            const explanation = document.getElementById('viewchange-explanation');
+
+            const nodes = [
+                {id: 'N0', x: 250, y: 200},
+                {id: 'N1', x: 550, y: 200},
+                {id: 'N2', x: 250, y: 400},
+                {id: 'N3', x: 550, y: 400}
+            ];
+
+            const currentPrimary = viewChangeStep < 6 ? 0 : 1;
+            const viewNum = viewChangeStep < 6 ? 0 : 1;
+
+            let svg = `<svg width="100%" height="500" viewBox="0 0 800 500">
+                <text x="400" y="40" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">View ${viewNum} - Primary: N${currentPrimary}</text>
+            `;
+
+            nodes.forEach((node, idx) => {
+                const isPrimary = idx === currentPrimary;
+                const color = isPrimary ? '#3498db' : '#27ae60';
+                const stroke = isPrimary ? '#2980b9' : '#229954';
+                svg += `<g>
+                    <circle cx="${node.x}" cy="${node.y}" r="40" fill="${color}" stroke="${stroke}" stroke-width="3"/>
+                    <text x="${node.x}" y="${node.y + 5}" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">${node.id}</text>
+                    ${isPrimary ? `<text x="${node.x}" y="${node.y - 55}" text-anchor="middle" style="font-size: 24px;">👑</text>` : ''}
+                `;
+
+                // Timer display
+                if (viewChangeStep >= 1 && viewChangeStep <= 3 && idx !== 0) {
+                    const timerValue = viewChangeStep === 1 ? '3' : (viewChangeStep === 2 ? '2' : '0');
+                    svg += `<circle cx="${node.x + 50}" cy="${node.y - 30}" r="20" fill="#f39c12" stroke="#e67e22" stroke-width="2"/>
+                    <text x="${node.x + 50}" y="${node.y - 25}" text-anchor="middle" fill="white" style="font-size: 16px; font-weight: bold;">${timerValue}</text>`;
+                }
+
+                svg += `</g>`;
+            });
+
+            const explanations = [
+                '<strong>Initial State</strong><br>View 0 with N0 as primary. System operating normally.',
+                '<strong>Primary Failure Detected</strong><br>N0 fails to send PRE-PREPARE. Replicas start timeout timers.',
+                '<strong>Timers Counting Down</strong><br>N1, N2, N3 are waiting for PRE-PREPARE from N0...',
+                '<strong>Timeout!</strong><br>Replicas\' timers expire. They initiate view change.',
+                '<strong>Broadcasting VIEW-CHANGE</strong><br>N1, N2, N3 broadcast VIEW-CHANGE messages. Need 2f+1=3 messages.',
+                '<strong>Collected 2f+1 VIEW-CHANGE Messages</strong><br>Threshold reached! New view can begin.',
+                '<strong>New View Started</strong><br>View 1 begins. New primary is N1 (view mod n = 1 mod 4 = 1).',
+                '<strong>Normal Operation Resumed</strong><br>N1 broadcasts NEW-VIEW message. System continues with new primary! ✓'
+            ];
+
+            if (viewChangeStep >= 4) {
+                // Show VIEW-CHANGE messages
+                svg += `<line x1="550" y1="240" x2="290" y2="370" stroke="#f39c12" stroke-width="2" marker-end="url(#arrow-vc)"/>
+                <line x1="250" y1="360" x2="510" y2="230" stroke="#f39c12" stroke-width="2" marker-end="url(#arrow-vc)"/>
+                <line x1="550" y1="360" x2="290" y2="230" stroke="#f39c12" stroke-width="2" marker-end="url(#arrow-vc)"/>
+                <text x="400" y="300" text-anchor="middle" fill="#f39c12" style="font-size: 13px; font-weight: bold;">VIEW-CHANGE(1)</text>`;
+            }
+
+            if (viewChangeStep >= 5) {
+                svg += `<rect x="300" y="100" width="200" height="50" fill="rgba(243, 156, 18, 0.2)" stroke="#f39c12" stroke-width="3" rx="5"/>
+                <text x="400" y="120" text-anchor="middle" fill="#f39c12" style="font-size: 13px; font-weight: bold;">VIEW-CHANGE Count: 3</text>
+                <text x="400" y="140" text-anchor="middle" fill="#f39c12" style="font-size: 12px;">Threshold 2f+1 = 3 ✓</text>`;
+            }
+
+            if (viewChangeStep >= 7) {
+                svg += `<rect x="250" y="450" width="300" height="40" fill="rgba(39, 174, 96, 0.2)" stroke="#27ae60" stroke-width="3" rx="5"/>
+                <text x="400" y="475" text-anchor="middle" fill="#27ae60" style="font-size: 14px; font-weight: bold;">System Recovered! ✓</text>`;
+            }
+
+            svg += `<defs><marker id="arrow-vc" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#f39c12"/></marker></defs></svg>`;
+
+            container.innerHTML = svg;
+            explanation.innerHTML = explanations[viewChangeStep];
+        }
+
+        // ========================================
+        // VISUALIZATION 9: Interactive Calculator
+        // ========================================
+        function updateCalcFromN() {
+            const n = parseInt(document.getElementById('calc-n-input').value);
+            const f = Math.floor((n - 1) / 3);
+
+            document.getElementById('calc-f-input').value = f;
+            updateCalcDisplay(n, f);
+        }
+
+        function updateCalcFromF() {
+            const f = parseInt(document.getElementById('calc-f-input').value);
+            const n = 3 * f + 1;
+
+            document.getElementById('calc-n-input').value = n;
+            updateCalcDisplay(n, f);
+        }
+
+        function setPreset(n) {
+            document.getElementById('calc-n-input').value = n;
+            updateCalcFromN();
+        }
+
+        function updateCalcDisplay(n, f) {
+            const quorum = 2 * f + 1;
+            const replies = f + 1;
+
+            document.getElementById('calc-n-display').textContent = n;
+            document.getElementById('calc-f-display').textContent = f;
+            document.getElementById('calc-quorum-display').textContent = quorum;
+            document.getElementById('calc-replies-display').textContent = replies;
+
+            renderCalculatorViz(n, f, quorum);
+        }
+
+        function renderCalculatorViz(n, f, quorum) {
+            const container = document.getElementById('calculator-viz');
+
+            let svg = `<svg width="100%" height="350" viewBox="0 0 1000 350">
+                <text x="500" y="30" text-anchor="middle" style="font-size: 18px; font-weight: bold; fill: var(--primary-color);">Node Visualization</text>
+            `;
+
+            // Draw nodes
+            const maxPerRow = 15;
+            const rows = Math.ceil(n / maxPerRow);
+            const nodeRadius = 25;
+            const spacing = 60;
+
+            for (let i = 0; i < n; i++) {
+                const row = Math.floor(i / maxPerRow);
+                const col = i % maxPerRow;
+                const nodesInRow = Math.min(maxPerRow, n - row * maxPerRow);
+                const offsetX = (1000 - nodesInRow * spacing) / 2;
+
+                const x = offsetX + col * spacing + 30;
+                const y = 80 + row * spacing;
+
+                const isByzantine = i < f;
+                const inQuorum = i < quorum;
+                const color = isByzantine ? '#e74c3c' : '#27ae60';
+                const strokeColor = inQuorum ? '#f39c12' : (isByzantine ? '#c0392b' : '#229954');
+                const strokeWidth = inQuorum ? 3 : 2;
+
+                svg += `<circle cx="${x}" cy="${y}" r="${nodeRadius}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>
+                <text x="${x}" y="${y + 5}" text-anchor="middle" fill="white" style="font-size: 12px; font-weight: bold;">${i}</text>`;
+            }
+
+            // Legend
+            svg += `
+                <g transform="translate(100, ${80 + rows * spacing + 30})">
+                    <circle cx="0" cy="0" r="15" fill="#27ae60" stroke="#229954" stroke-width="2"/>
+                    <text x="25" y="5" style="font-size: 14px;">Honest (${n - f})</text>
+
+                    <circle cx="180" cy="0" r="15" fill="#e74c3c" stroke="#c0392b" stroke-width="2"/>
+                    <text x="205" y="5" style="font-size: 14px;">Byzantine (${f})</text>
+
+                    <circle cx="360" cy="0" r="15" fill="#27ae60" stroke="#f39c12" stroke-width="3"/>
+                    <text x="385" y="5" style="font-size: 14px;">In Quorum (${quorum})</text>
+                </g>
+            `;
+
+            svg += `</svg>`;
+            container.innerHTML = svg;
+        }
+
+        // ========================================
+        // VISUALIZATION 10: Practice Problems
+        // ========================================
+        let currentProblem = 0;
+
+        const problems = [
+            {
+                question: 'You need to tolerate 3 Byzantine faults. How many nodes minimum?',
+                type: 'input',
+                answer: 10,
+                explanation: 'Using formula n ≥ 3f + 1: n ≥ 3(3) + 1 = 10 nodes',
+                visual: (container) => {
+                    container.innerHTML = `<svg width="100%" height="300" viewBox="0 0 800 300">
+                        <text x="400" y="50" text-anchor="middle" style="font-size: 16px; font-weight: bold;">f = 3 Byzantine nodes</text>
+                        <text x="400" y="150" text-anchor="middle" style="font-size: 20px; font-weight: bold; fill: var(--secondary-color);">n ≥ 3f + 1 = 3(3) + 1 = ?</text>
+                    </svg>`;
+                }
+            },
+            {
+                question: 'In a 13-node PBFT system, what is the quorum size (2f+1)?',
+                type: 'input',
+                answer: 9,
+                explanation: 'With 13 nodes: f = ⌊(13-1)/3⌋ = 4. Quorum = 2f + 1 = 2(4) + 1 = 9',
+                visual: (container) => {
+                    container.innerHTML = `<svg width="100%" height="300" viewBox="0 0 800 300">
+                        <text x="400" y="50" text-anchor="middle" style="font-size: 16px; font-weight: bold;">n = 13 nodes</text>
+                        <text x="400" y="100" text-anchor="middle" style="font-size: 14px;">Step 1: f = ⌊(13-1)/3⌋ = ⌊12/3⌋ = 4</text>
+                        <text x="400" y="150" text-anchor="middle" style="font-size: 20px; font-weight: bold; fill: var(--secondary-color);">Step 2: Quorum = 2f + 1 = 2(4) + 1 = ?</text>
+                    </svg>`;
+                }
+            },
+            {
+                question: 'How many matching replies must a client wait for in a 10-node system?',
+                type: 'input',
+                answer: 4,
+                explanation: 'With 10 nodes: f = ⌊(10-1)/3⌋ = 3. Client needs f + 1 = 3 + 1 = 4 matching replies',
+                visual: (container) => {
+                    container.innerHTML = `<svg width="100%" height="300" viewBox="0 0 800 300">
+                        <text x="400" y="50" text-anchor="middle" style="font-size: 16px; font-weight: bold;">n = 10 nodes</text>
+                        <text x="400" y="100" text-anchor="middle" style="font-size: 14px;">f = ⌊(10-1)/3⌋ = 3</text>
+                        <text x="400" y="150" text-anchor="middle" style="font-size: 20px; font-weight: bold; fill: var(--secondary-color);">Client replies needed = f + 1 = ?</text>
+                    </svg>`;
+                }
+            },
+            {
+                question: 'A 7-node system is in view 5. What node will be the next primary after a view change?',
+                type: 'input',
+                answer: 6,
+                explanation: 'New primary = view_number mod num_replicas = 6 mod 7 = 6 (so N6 is primary)',
+                visual: (container) => {
+                    container.innerHTML = `<svg width="100%" height="300" viewBox="0 0 800 300">
+                        <text x="400" y="50" text-anchor="middle" style="font-size: 16px; font-weight: bold;">View change: view 5 → view 6</text>
+                        <text x="400" y="100" text-anchor="middle" style="font-size: 14px;">Number of nodes = 7</text>
+                        <text x="400" y="150" text-anchor="middle" style="font-size: 20px; font-weight: bold; fill: var(--secondary-color);">New primary = 6 mod 7 = ?</text>
+                    </svg>`;
+                }
+            }
+        ];
+
+        function loadPracticeProblem(num) {
+            currentProblem = num - 1;
+            const problem = problems[currentProblem];
+
+            const questionDiv = document.getElementById('practice-problem');
+            const vizDiv = document.getElementById('practice-viz');
+            const inputDiv = document.getElementById('practice-input');
+            const feedbackDiv = document.getElementById('practice-feedback');
+
+            questionDiv.innerHTML = `<strong>Problem ${num}:</strong> ${problem.question}`;
+            problem.visual(vizDiv);
+
+            inputDiv.innerHTML = `
+                <label style="font-size: 16px; margin-right: 1rem;"><strong>Your Answer:</strong></label>
+                <input type="number" id="practice-answer" style="padding: 0.5rem; font-size: 16px; width: 100px; border: 2px solid var(--secondary-color); border-radius: 5px;">
+                <button onclick="checkAnswer()" style="background: var(--success-color); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-left: 1rem;">Check Answer</button>
+            `;
+
+            feedbackDiv.style.display = 'none';
+        }
+
+        function checkAnswer() {
+            const problem = problems[currentProblem];
+            const userAnswer = parseInt(document.getElementById('practice-answer').value);
+            const feedbackDiv = document.getElementById('practice-feedback');
+
+            if (userAnswer === problem.answer) {
+                feedbackDiv.style.background = 'rgba(39, 174, 96, 0.2)';
+                feedbackDiv.style.borderLeft = '4px solid var(--success-color)';
+                feedbackDiv.innerHTML = `<strong style="color: var(--success-color);">✓ Correct!</strong><br>${problem.explanation}`;
+            } else {
+                feedbackDiv.style.background = 'rgba(231, 76, 60, 0.2)';
+                feedbackDiv.style.borderLeft = '4px solid var(--accent-color)';
+                feedbackDiv.innerHTML = `<strong style="color: var(--accent-color);">✗ Incorrect.</strong> The correct answer is ${problem.answer}.<br>${problem.explanation}`;
+            }
+
+            feedbackDiv.style.display = 'block';
+        }
+
+        // ========================================
+        // Initialize all visualizations
+        // ========================================
+        window.addEventListener('load', function() {
+            animateFailureTypes();
+            setGeneralsScenario(1);
+            updateFormulaViz();
+            renderPBFT();
+            renderExample();
+            updateQuorumViz();
+            setAttackScenario(1);
+            renderViewChange();
+            updateCalcFromN();
+            loadPracticeProblem(1);
+        });
+    </script>
+</body>
+</html>

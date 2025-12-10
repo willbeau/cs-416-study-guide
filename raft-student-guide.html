@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎓 RAFT Consensus Algorithm - Student's Guide</title>
+
+    <!-- Mermaid.js for diagrams -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#e3f2fd',
+                primaryTextColor: '#1a237e',
+                primaryBorderColor: '#1976d2',
+                lineColor: '#1976d2',
+                secondaryColor: '#f3e5f5',
+                tertiaryColor: '#fff9c4'
+            }
+        });
+    </script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #1976d2;
+            --secondary-color: #0d47a1;
+            --accent-color: #2196f3;
+            --success-color: #4caf50;
+            --warning-color: #ff9800;
+            --danger-color: #f44336;
+            --text-color: #263238;
+            --text-light: #546e7a;
+            --bg-color: #ffffff;
+            --bg-light: #f5f7fa;
+            --bg-code: #2b2b2b;
+            --border-color: #e0e0e0;
+            --shadow: 0 2px 8px rgba(0,0,0,0.1);
+            --shadow-lg: 0 4px 20px rgba(0,0,0,0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.7;
+            color: var(--text-color);
+            background: var(--bg-light);
+            font-size: 16px;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.95;
+            font-weight: 300;
+        }
+
+        /* Navigation */
+        .nav-container {
+            position: sticky;
+            top: 0;
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+            z-index: 1000;
+        }
+
+        .nav {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+        }
+
+        .nav-title {
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .nav-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            list-style: none;
+        }
+
+        .nav-links li a {
+            display: inline-block;
+            padding: 0.4rem 1rem;
+            background: var(--bg-light);
+            color: var(--text-color);
+            text-decoration: none;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .nav-links li a:hover {
+            background: var(--primary-color);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        /* Content Sections */
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .section h2 {
+            color: var(--primary-color);
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 3px solid var(--accent-color);
+        }
+
+        .section h3 {
+            color: var(--secondary-color);
+            font-size: 1.5rem;
+            margin: 2rem 0 1rem 0;
+        }
+
+        .section h4 {
+            color: var(--text-color);
+            font-size: 1.2rem;
+            margin: 1.5rem 0 0.75rem 0;
+            font-weight: 600;
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 1rem 0 1rem 2rem;
+        }
+
+        li {
+            margin: 0.5rem 0;
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--bg-code);
+            color: #f8f8f2;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            box-shadow: var(--shadow);
+        }
+
+        code {
+            font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+            background: #f5f5f5;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #d32f2f;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+
+        /* Blockquotes / Callouts */
+        blockquote {
+            background: linear-gradient(to right, #e3f2fd 0%, #f5f9ff 100%);
+            border-left: 4px solid var(--primary-color);
+            padding: 1.25rem 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        blockquote p {
+            margin: 0;
+            font-weight: 500;
+            color: var(--secondary-color);
+        }
+
+        /* Diagram containers */
+        .diagram {
+            background: #fafafa;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            margin: 2rem 0;
+            overflow-x: auto;
+        }
+
+        .diagram-explanation {
+            background: #fff8e1;
+            border-left: 4px solid #ffa726;
+            padding: 1rem 1.5rem;
+            margin: 1rem 0 2rem 0;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+
+        .diagram-explanation strong {
+            color: #e65100;
+        }
+
+        /* Emojis in headings */
+        .emoji {
+            font-style: normal;
+        }
+
+        /* Step markers */
+        .step-marker {
+            display: inline-block;
+            background: var(--primary-color);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        /* State badges */
+        .state-follower {
+            background: #4caf50;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .state-candidate {
+            background: #ff9800;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .state-leader {
+            background: #f44336;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+            box-shadow: var(--shadow);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tbody tr:hover {
+            background: var(--bg-light);
+        }
+
+        /* Practice problems */
+        .practice-problem {
+            background: #f3e5f5;
+            border: 2px solid #9c27b0;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .practice-problem h3 {
+            color: #6a1b9a;
+            margin-top: 0;
+        }
+
+        details {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--primary-color);
+            padding: 0.5rem;
+            user-select: none;
+        }
+
+        summary:hover {
+            color: var(--accent-color);
+        }
+
+        details[open] summary {
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        /* Key takeaways box */
+        .key-takeaway {
+            background: linear-gradient(135deg, #e8f5e9 0%, #f1f8f4 100%);
+            border: 2px solid #4caf50;
+            border-radius: 12px;
+            padding: 2rem;
+            margin: 2rem 0;
+        }
+
+        .key-takeaway h3 {
+            color: #2e7d32;
+            margin-top: 0;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--text-color);
+            color: white;
+            text-align: center;
+            padding: 2rem;
+            margin-top: 3rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .section {
+                padding: 1.5rem;
+            }
+
+            .container {
+                padding: 1.5rem 1rem;
+            }
+
+            .nav-links {
+                flex-direction: column;
+            }
+
+            .nav-links li a {
+                display: block;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            .nav-container {
+                display: none;
+            }
+
+            .section {
+                page-break-inside: avoid;
+                box-shadow: none;
+                border: 1px solid var(--border-color);
+            }
+
+            pre {
+                page-break-inside: avoid;
+            }
+        }
+
+        /* Smooth scroll */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Highlight animations */
+        @keyframes highlight {
+            0% { background-color: #fff176; }
+            100% { background-color: transparent; }
+        }
+
+        :target {
+            animation: highlight 2s ease-out;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-light);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--secondary-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎓 RAFT Consensus Algorithm</h1>
+        <p>Student's Guide - Making distributed systems agree on things, one step at a time</p>
+    </div>
+
+    <nav class="nav-container">
+        <div class="nav">
+            <div class="nav-title">📚 Table of Contents</div>
+            <ul class="nav-links">
+                <li><a href="#problem">What Problem?</a></li>
+                <li><a href="#big-picture">Big Picture</a></li>
+                <li><a href="#server-states">Server States</a></li>
+                <li><a href="#leader-election">Leader Election</a></li>
+                <li><a href="#log-replication">Log Replication</a></li>
+                <li><a href="#safety">Safety</a></li>
+                <li><a href="#membership">Membership Changes</a></li>
+                <li><a href="#compaction">Log Compaction</a></li>
+                <li><a href="#complete-example">Complete Example</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- What Problem Does RAFT Solve? -->
+        <section class="section" id="problem">
+            <h2>What Problem Does RAFT Solve?</h2>
+
+            <h3>The Challenge: Multiple Servers, One Truth</h3>
+            <p>Imagine you have <strong>5 servers</strong> that need to agree on a sequence of operations (like a shared to-do list). The challenges are:</p>
+
+            <ul>
+                <li>🔌 Servers can <strong>crash</strong> at any time</li>
+                <li>🌐 <strong>Network messages</strong> can be delayed or lost</li>
+                <li>⏱️ <strong>Clocks</strong> on different servers aren't perfectly synchronized</li>
+                <li>🤔 How do they all agree on the <strong>same sequence</strong> of operations?</li>
+            </ul>
+
+            <h3>RAFT's Solution: Elect a Leader</h3>
+            <p>RAFT solves this by:</p>
+            <ol>
+                <li><strong>Electing a leader</strong> - One server is in charge</li>
+                <li><strong>Leader manages the log</strong> - The leader decides the order of operations</li>
+                <li><strong>Replicate to followers</strong> - The leader copies the log to other servers</li>
+                <li><strong>If leader crashes</strong> - Elect a new one!</li>
+            </ol>
+
+            <blockquote>
+                <p>💡 <strong>Key Insight</strong>: It's easier to manage consensus with a single leader coordinating everything than having all servers try to agree peer-to-peer.</p>
+            </blockquote>
+        </section>
+
+        <!-- The Big Picture -->
+        <section class="section" id="big-picture">
+            <h2>The Big Picture</h2>
+
+            <h3>RAFT's Three Main Pieces</h3>
+            <p>RAFT breaks down the consensus problem into three parts:</p>
+
+            <pre>
+┌─────────────────────────────────────────────────────────┐
+│                    RAFT ALGORITHM                        │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  1. LEADER ELECTION                                      │
+│     Choose a leader when the old one fails              │
+│                                                          │
+│  2. LOG REPLICATION                                      │
+│     Leader copies log entries to all followers          │
+│                                                          │
+│  3. SAFETY                                               │
+│     Ensure everyone applies the same commands           │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+</pre>
+
+            <h3>The Replicated State Machine Pattern</h3>
+            <pre>
+CLIENT REQUEST
+     ↓
+┌─────────────────────────────────────────┐
+│  CONSENSUS MODULE                        │
+│  (RAFT manages the replicated log)      │
+└─────────────────────────────────────────┘
+     ↓
+┌─────────────────────────────────────────┐
+│  REPLICATED LOG                          │
+│  [cmd1][cmd2][cmd3][cmd4][cmd5]         │
+└─────────────────────────────────────────┘
+     ↓
+┌─────────────────────────────────────────┐
+│  STATE MACHINE                           │
+│  (Executes commands in order)           │
+└─────────────────────────────────────────┘
+     ↓
+RESULT TO CLIENT
+</pre>
+
+            <h4>How it works:</h4>
+            <ol>
+                <li>Client sends a command to the leader</li>
+                <li>RAFT replicates it to all servers' logs</li>
+                <li>Once safely replicated (on majority), it's "committed"</li>
+                <li>Each server executes committed commands in order</li>
+                <li>Result returned to client</li>
+            </ol>
+        </section>
+
+        <!-- Server States -->
+        <section class="section" id="server-states">
+            <h2>Understanding Server States</h2>
+
+            <h3>The Three States</h3>
+            <p>Every server is always in one of three states:</p>
+
+            <h4>🟢 <span class="state-follower">FOLLOWER</span> (Passive)</h4>
+            <ul>
+                <li>Most servers are followers most of the time</li>
+                <li>Just responds to leader's requests</li>
+                <li>If they don't hear from the leader → become a candidate</li>
+            </ul>
+
+            <h4>🟡 <span class="state-candidate">CANDIDATE</span> (Seeking Election)</h4>
+            <ul>
+                <li>Trying to become the leader</li>
+                <li>Asks other servers for votes</li>
+                <li>If gets majority → becomes leader</li>
+                <li>If someone else wins → becomes follower</li>
+            </ul>
+
+            <h4>🔴 <span class="state-leader">LEADER</span> (In Charge)</h4>
+            <ul>
+                <li>Handles all client requests</li>
+                <li>Sends heartbeats to keep followers happy</li>
+                <li>Replicates log entries to followers</li>
+                <li>Only ONE leader at a time per term</li>
+            </ul>
+
+            <h3>State Transitions</h3>
+            <div class="diagram">
+                <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Follower
+
+    Follower --> Candidate: times out, starts election
+    Candidate --> Leader: receives votes from majority of servers
+    Candidate --> Follower: discovers current leader or new term
+    Leader --> Follower: discovers server with higher term
+    Candidate --> Candidate: times out, new election
+
+    Follower --> Follower: receives valid heartbeat
+    Leader --> Leader: maintains leadership
+                </pre>
+            </div>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: This shows how servers transition between the three states. Notice that servers start as followers, and the most common transitions are follower→candidate (when timeout) and candidate→leader (when winning election).
+            </div>
+        </section>
+
+        <!-- Leader Election -->
+        <section class="section" id="leader-election">
+            <h2>Leader Election Explained</h2>
+
+            <h3>Why Do We Need Elections?</h3>
+            <p>The leader might:</p>
+            <ul>
+                <li>💥 <strong>Crash</strong> - Hardware failure, power loss, etc.</li>
+                <li>🔌 <strong>Get disconnected</strong> - Network partition</li>
+                <li>🐌 <strong>Become too slow</strong> - Not sending heartbeats</li>
+            </ul>
+            <p>When this happens, we need a new leader!</p>
+
+            <h3>The Election Process - Step by Step</h3>
+
+            <h4>Step 1: Follower Times Out</h4>
+            <pre>
+Follower: "I haven't heard from the leader in a while..."
+          [Election timeout expires]
+Follower: "Time for an election!"
+</pre>
+            <ul>
+                <li>Each follower has a randomized <strong>election timeout</strong> (e.g., 150-300ms)</li>
+                <li>If no heartbeat received before timeout → start election</li>
+            </ul>
+
+            <h4>Step 2: Become Candidate</h4>
+            <pre>
+Candidate does:
+1. Increment currentTerm (e.g., term 3 → term 4)
+2. Vote for self
+3. Reset election timer
+4. Send RequestVote to all other servers
+</pre>
+
+            <h4>Step 3: Request Votes</h4>
+            <p><strong>RequestVote RPC says:</strong></p>
+            <pre>
+"Hi! I'm running for leader in term 4.
+ My log is this up-to-date: [last entry: term 3, index 10]
+ Will you vote for me?"
+</pre>
+
+            <p><strong>Other servers think:</strong></p>
+            <pre>
+✓ Is this term newer than mine? (term 4 > term 3) → YES
+✓ Have I already voted this term? → NO
+✓ Is their log at least as up-to-date as mine? → YES
+→ "You have my vote!"
+</pre>
+
+            <h4>Step 4: Three Possible Outcomes</h4>
+
+            <p><strong>Outcome A: Win the Election! 🎉</strong></p>
+            <pre>
+Candidate: "I got 3 votes out of 5. That's a majority!"
+         → Becomes LEADER
+         → Sends heartbeats to everyone
+</pre>
+
+            <p><strong>Outcome B: Someone Else Won 😔</strong></p>
+            <pre>
+Candidate receives heartbeat from new leader
+Candidate: "Oh, someone else won. Back to being a follower."
+         → Becomes FOLLOWER
+</pre>
+
+            <p><strong>Outcome C: Split Vote - Nobody Wins 🤷</strong></p>
+            <pre>
+Candidate: "We split the votes. Nobody got a majority."
+         [Election timeout expires]
+         → Start NEW election with higher term
+</pre>
+
+            <h4>Complete Election Example</h4>
+            <p>Here's a complete example showing a successful election:</p>
+
+            <div class="diagram">
+                <pre class="mermaid">
+sequenceDiagram
+    participant S1 as S1 (Leader)
+    participant S2 as S2 (Follower)
+    participant S3 as S3 (Follower)
+    participant S4 as S4 (Follower)
+    participant S5 as S5 (Follower)
+
+    Note over S1: S1 is the current leader
+    S1->>S2: Heartbeat
+    S1->>S3: Heartbeat
+    S1->>S4: Heartbeat
+    S1->>S5: Heartbeat
+
+    Note over S1: S1 CRASHES 💥
+
+    Note over S2,S5: No heartbeats received
+    Note over S3: Election timeout expires
+    Note over S3: S3 becomes CANDIDATE<br/>Increments term<br/>Votes for self
+
+    S3->>S2: RequestVote(term, candidateId)
+    S3->>S4: RequestVote(term, candidateId)
+    S3->>S5: RequestVote(term, candidateId)
+
+    S2-->>S3: VoteGranted: true
+    S4-->>S3: VoteGranted: true
+    S5-->>S3: VoteGranted: true
+
+    Note over S3: Received majority votes<br/>(4 out of 5 including self)<br/>S3 becomes LEADER 👑
+
+    S3->>S2: Heartbeat (AppendEntries)
+    S3->>S4: Heartbeat (AppendEntries)
+    S3->>S5: Heartbeat (AppendEntries)
+
+    Note over S2,S5: Servers acknowledge new leader
+    S2-->>S3: Success
+    S4-->>S3: Success
+    S5-->>S3: Success
+                </pre>
+            </div>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: Follow the sequence from top to bottom. Notice how S3 doesn't wait for ALL votes - as soon as it gets a majority (3 out of 4 other servers), it becomes leader and immediately sends heartbeats to establish authority.
+            </div>
+
+            <h3>The Magic of Randomization</h3>
+            <p><strong>Problem</strong>: What if multiple servers timeout at the same time?</p>
+            <pre>
+Server A times out at 150ms → Votes: A, B
+Server B times out at 150ms → Votes: B, C
+Server C times out at 150ms → Votes: C, D
+Result: SPLIT VOTE! Nobody wins.
+</pre>
+
+            <p><strong>Solution</strong>: Random election timeouts!</p>
+            <pre>
+Server A times out at 237ms → Starts election, becomes leader
+Server B times out at 289ms → Sees A is already leader, stays follower
+Server C times out at 195ms → Starts election, but no one needs a leader
+</pre>
+
+            <h3>Terms: The Logical Clock</h3>
+            <p>Think of <strong>terms</strong> as "presidential terms" or "eras":</p>
+            <pre>
+Term 1: Server A is leader ━━━━━━━━━━━━━━━━━━┓
+                                              crash!
+Term 2: Election (A and B split vote) ━━━┓
+                                          no winner
+Term 3: Server B is leader ━━━━━━━━━━━━━━━━━━━━━━━━━━━→
+</pre>
+
+            <p><strong>Rules about terms:</strong></p>
+            <ul>
+                <li>Terms are numbered: 1, 2, 3, 4, ...</li>
+                <li>Each term has at most ONE leader</li>
+                <li>If you discover a higher term → update yours and become follower</li>
+                <li>Terms act as a "version number" for leadership</li>
+            </ul>
+        </section>
+
+        <!-- Log Replication -->
+        <section class="section" id="log-replication">
+            <h2>Log Replication Made Simple</h2>
+
+            <h3>What's in a Log?</h3>
+            <p>Each <strong>log entry</strong> contains:</p>
+            <pre>
+┌─────────────────────────────────────┐
+│  Index: 5                            │  ← Position in log
+│  Term: 3                             │  ← When it was created
+│  Command: "x = 7"                    │  ← What to execute
+└─────────────────────────────────────┘
+</pre>
+
+            <h3>The Normal Case: Leader Replicates Entries</h3>
+            <p><strong>Step-by-step process:</strong></p>
+
+            <p>1️⃣ <strong>Client sends command to leader</strong></p>
+            <pre>Client → Leader: "Please execute: x = 7"</pre>
+
+            <p>2️⃣ <strong>Leader appends to its own log</strong></p>
+            <pre>
+Leader's log: [1][2][3][4][5: x=7]
+                               ↑ new!
+</pre>
+
+            <p>3️⃣ <strong>Leader sends AppendEntries RPC to all followers</strong></p>
+            <pre>
+Leader → Followers: "Here's a new entry:
+                     - Index: 5
+                     - Term: 3
+                     - Command: x = 7
+                     - Previous entry: Index 4, Term 3"
+</pre>
+
+            <p>4️⃣ <strong>Followers append entry if previous entry matches</strong></p>
+            <pre>
+Follower checks: "Do I have entry at index 4 with term 3?"
+                 YES → Append new entry
+                 NO  → Reject (my log is inconsistent)
+</pre>
+
+            <p>5️⃣ <strong>Leader waits for majority to respond</strong></p>
+            <pre>
+Leader: "3 out of 5 servers have the entry. That's a majority!"
+      → Entry is now COMMITTED
+</pre>
+
+            <p>6️⃣ <strong>Leader applies to state machine and responds to client</strong></p>
+            <pre>
+Leader's state machine: Execute "x = 7"
+Leader → Client: "Success! x is now 7"
+</pre>
+
+            <p>7️⃣ <strong>Leader tells followers entry is committed</strong></p>
+            <pre>
+Leader → Followers (in next heartbeat):
+         "commitIndex is now 5"
+
+Followers: Apply entries up to index 5 to state machine
+</pre>
+
+            <div class="diagram">
+                <pre class="mermaid">
+sequenceDiagram
+    participant Client
+    participant Leader
+    participant Follower1 as Follower 1
+    participant Follower2 as Follower 2
+    participant Follower3 as Follower 3
+
+    Note over Client,Follower3: RAFT Log Replication Flow
+
+    Client->>Leader: Send command (e.g., SET x=5)
+    Note over Leader: Append entry to local log<br/>(uncommitted)
+
+    par Parallel AppendEntries RPCs
+        Leader->>Follower1: AppendEntries RPC<br/>(entry, term, prevLog)
+        Leader->>Follower2: AppendEntries RPC<br/>(entry, term, prevLog)
+        Leader->>Follower3: AppendEntries RPC<br/>(entry, term, prevLog)
+    end
+
+    Note over Follower1: Append entry to log
+    Note over Follower2: Append entry to log
+    Note over Follower3: Append entry to log
+
+    Follower1-->>Leader: Success (true)
+    Follower2-->>Leader: Success (true)
+    Follower3-->>Leader: Success (true)
+
+    Note over Leader: Majority confirmed (3/5)<br/>Commit entry & apply to state machine
+
+    Leader-->>Client: Success response
+
+    Note over Leader,Follower3: Next heartbeat cycle
+
+    par Heartbeat with commit index
+        Leader->>Follower1: AppendEntries RPC<br/>(commitIndex updated)
+        Leader->>Follower2: AppendEntries RPC<br/>(commitIndex updated)
+        Leader->>Follower3: AppendEntries RPC<br/>(commitIndex updated)
+    end
+
+    Note over Follower1: Apply committed entry<br/>to state machine
+    Note over Follower2: Apply committed entry<br/>to state machine
+    Note over Follower3: Apply committed entry<br/>to state machine
+
+    Follower1-->>Leader: ACK
+    Follower2-->>Leader: ACK
+    Follower3-->>Leader: ACK
+                </pre>
+            </div>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: Follow the flow from top to bottom. Notice the two-phase process: first replicate (get entries on followers), then commit (once majority confirms). The leader responds to the client after committing but before followers have applied the entry!
+            </div>
+
+            <h3>The Consistency Check</h3>
+            <p><strong>Every AppendEntries RPC includes:</strong></p>
+            <ul>
+                <li><code>prevLogIndex</code>: Index of entry right before new entries</li>
+                <li><code>prevLogTerm</code>: Term of that entry</li>
+            </ul>
+
+            <p><strong>This ensures:</strong></p>
+            <ul>
+                <li>Logs are consistent up to that point</li>
+                <li>No holes in the log</li>
+                <li>Same entries at same positions</li>
+            </ul>
+
+            <h3>When Logs Get Inconsistent</h3>
+            <p><strong>This can happen when:</strong></p>
+            <ul>
+                <li>Leader crashes before fully replicating</li>
+                <li>Follower crashes and misses some entries</li>
+                <li>Network partitions</li>
+            </ul>
+
+            <p><strong>Example of inconsistent logs:</strong></p>
+            <pre>
+Leader:    [1,1][2,1][3,2][4,3][5,3][6,3]
+Follower1: [1,1][2,1][3,2][4,3][5,3]        ← Missing entry 6
+Follower2: [1,1][2,1][3,2]                  ← Missing 4, 5, 6
+Follower3: [1,1][2,1][3,2][4,2][5,2]        ← Has wrong entries!
+           Format: [index, term]
+</pre>
+
+            <h3>How the Leader Fixes Inconsistencies</h3>
+            <p>The leader maintains <code>nextIndex[]</code> for each follower. It backs up one entry at a time until the logs match, then sends all missing entries.</p>
+
+            <h3>Commitment Rules</h3>
+            <p><strong>An entry is COMMITTED when:</strong></p>
+            <ul>
+                <li>The leader has replicated it on a <strong>majority</strong> of servers</li>
+                <li>The entry is from the <strong>current term</strong></li>
+            </ul>
+
+            <blockquote>
+                <p><strong>Important rule:</strong> Never commit entries from previous terms by counting!</p>
+            </blockquote>
+        </section>
+
+        <!-- Safety Guarantees -->
+        <section class="section" id="safety">
+            <h2>Safety Guarantees</h2>
+
+            <p>RAFT provides five key safety properties:</p>
+
+            <h3>1. 🗳️ Election Safety</h3>
+            <p><strong>At most one leader can be elected in a given term</strong></p>
+            <ul>
+                <li>Each server votes for at most one candidate per term</li>
+                <li>Need majority of votes to win</li>
+                <li>Two different candidates can't both get majority</li>
+            </ul>
+
+            <h3>2. ➕ Leader Append-Only</h3>
+            <p><strong>A leader never overwrites or deletes entries in its log</strong></p>
+            <ul>
+                <li>Leaders only append new entries</li>
+                <li>Makes reasoning about logs much simpler</li>
+            </ul>
+
+            <h3>3. 🔗 Log Matching</h3>
+            <p><strong>If two logs have the same entry at the same index, all preceding entries are identical</strong></p>
+            <p>This comes from:</p>
+            <ul>
+                <li>Leader creates at most one entry per index per term</li>
+                <li>Consistency check ensures previous entries match</li>
+            </ul>
+
+            <h3>4. 👑 Leader Completeness</h3>
+            <p><strong>If an entry is committed in a term, all future leaders will have it</strong></p>
+            <p>This is enforced by the <strong>voting restriction</strong>:</p>
+            <ul>
+                <li>Voter denies vote if its log is more up-to-date than candidate's</li>
+                <li>Committed entry must be on majority of servers</li>
+                <li>New leader must get votes from majority</li>
+                <li>→ Overlap guarantees new leader has committed entry</li>
+            </ul>
+
+            <h3>5. ✅ State Machine Safety</h3>
+            <p><strong>If a server applies entry X at index i, no other server will ever apply different entry Y at index i</strong></p>
+            <p>This follows from Leader Completeness + Log Matching</p>
+
+            <div class="diagram">
+                <pre class="mermaid">
+graph TB
+    subgraph "Safety Properties Hierarchy"
+        ES[Election Safety<br/>At most one leader per term]
+        LAO[Leader Append-Only<br/>Leaders never delete/overwrite]
+        LM[Log Matching<br/>Same index+term = identical history]
+        LC[Leader Completeness<br/>Future leaders have committed entries]
+        SMS[State Machine Safety<br/>Same command at same index everywhere]
+
+        ES --> LC
+        LAO --> LM
+        LM --> LC
+        LC --> SMS
+
+        style ES fill:#e1f5ff,stroke:#01579b
+        style LAO fill:#f3e5f5,stroke:#4a148c
+        style LM fill:#fff9c4,stroke:#f57f17
+        style LC fill:#e8f5e9,stroke:#1b5e20
+        style SMS fill:#ffebee,stroke:#b71c1c,stroke-width:3px
+    end
+
+    subgraph "What They Guarantee"
+        G1[No split brain]
+        G2[Predictable log behavior]
+        G3[Committed entries never lost]
+        G4[All servers execute same commands]
+
+        ES -.-> G1
+        LAO -.-> G2
+        LC -.-> G3
+        SMS -.-> G4
+    end
+                </pre>
+            </div>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: The safety properties build on each other. The ultimate goal is <strong>State Machine Safety</strong> (bottom) - ensuring all servers execute the same commands. All other properties work together to guarantee this!
+            </div>
+        </section>
+
+        <!-- Membership Changes -->
+        <section class="section" id="membership">
+            <h2>Adding and Removing Servers</h2>
+
+            <h3>The Problem: Can't Switch Configurations Instantly</h3>
+            <p>Imagine switching from 3 servers to 5 servers. If they all switch at different times, you could have two different majorities that could elect two different leaders! 💥</p>
+
+            <h3>The Solution: Joint Consensus</h3>
+            <p>RAFT uses a two-phase approach with <strong>joint consensus</strong>:</p>
+            <pre>
+Phase 1: C_old → C_old,new (Joint consensus)
+Phase 2: C_old,new → C_new
+</pre>
+
+            <p><strong>Joint Consensus Rules:</strong></p>
+            <ul>
+                <li>Need majority of <strong>C_old</strong> AND majority of <strong>C_new</strong></li>
+                <li>Prevents split brain!</li>
+            </ul>
+
+            <div class="diagram">
+                <pre class="mermaid">
+flowchart LR
+    Start([Start]) --> Cold["C_old<br/>Servers: S1, S2, S3<br/>Majority: 2 of 3"]
+    Cold -->|"Leader creates<br/>C_old,new entry"| Joint["C_old,new<br/>Joint Consensus<br/><br/>Requires:<br/>2 of S1,S2,S3 AND<br/>3 of S1,S2,S3,S4,S5"]
+    Joint -->|"C_old,new committed<br/>Leader creates C_new"| Cnew["C_new<br/>Servers: S1, S2, S3, S4, S5<br/>Majority: 3 of 5"]
+    Cnew --> End([Complete])
+
+    style Cold fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Joint fill:#fff9c4,stroke:#f57f17,stroke-width:4px
+    style Cnew fill:#e8f5e9,stroke:#388e3c,stroke-width:3px
+    style Start fill:#f5f5f5,stroke:#757575
+    style End fill:#f5f5f5,stroke:#757575
+                </pre>
+            </div>
+
+            <blockquote style="margin-top: 1rem; background: #fff3e0; border-left-color: #f57f17;">
+                <p><strong>🔑 During Joint Consensus Phase:</strong></p>
+                <ul style="margin: 0.5rem 0 0 1.5rem;">
+                    <li>Neither old nor new config can make unilateral decisions</li>
+                    <li>Cluster remains available throughout transition</li>
+                    <li>Safe transition guaranteed - prevents split brain!</li>
+                </ul>
+            </blockquote>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: The joint consensus phase (middle) is the key! During this time, you need approval from BOTH the old majority AND the new majority. This prevents the cluster from splitting into two independent groups that could make conflicting decisions.
+            </div>
+        </section>
+
+        <!-- Log Compaction -->
+        <section class="section" id="compaction">
+            <h2>Log Compaction</h2>
+
+            <h3>The Problem: Logs Grow Forever</h3>
+            <pre>
+Day 1:   [1][2][3][4][5]                          (5 entries)
+Day 30:  [1][2]...[1000]                          (1000 entries)
+Day 365: [1][2]...[100000]                        (100,000 entries!)
+
+Problems:
+  💾 Takes up too much disk space
+  ⏱️ Takes forever to replay on restart
+  📡 Takes forever to send to new servers
+</pre>
+
+            <h3>The Solution: Snapshots</h3>
+            <p><strong>Idea:</strong> Save the current state, throw away the log up to that point</p>
+
+            <div class="diagram">
+                <pre class="mermaid">
+flowchart TB
+    subgraph BEFORE["BEFORE: Long Log"]
+        direction TB
+        B1["Log Entries: [1][2][3]...[98][99][100]"]
+        B2["State: x=5, y=3, z=7"]
+        B1 --> B2
+    end
+
+    subgraph ACTION["CREATE SNAPSHOT"]
+        direction TB
+        A1["1. Capture state machine state"]
+        A2["2. Record lastIncludedIndex = 100"]
+        A3["3. Record lastIncludedTerm = 5"]
+        A4["4. Delete log entries 1-100"]
+        A1 --> A2 --> A3 --> A4
+    end
+
+    subgraph AFTER["AFTER: Compact Structure"]
+        direction LR
+
+        subgraph SNAPSHOT["📦 Snapshot"]
+            S1["lastIncludedIndex: 100<br/>lastIncludedTerm: 5<br/><br/>State: x=5, y=3, z=7"]
+        end
+
+        subgraph LOG["📝 Log"]
+            L1["[101][102][103]..."]
+        end
+
+        SNAPSHOT -.->|Represents<br/>entries 1-100| LOG
+    end
+
+    BEFORE ==>|Log too long| ACTION
+    ACTION ==>|Complete| AFTER
+
+    style BEFORE fill:#ffebee,stroke:#c62828
+    style ACTION fill:#fff3e0,stroke:#ef6c00
+    style AFTER fill:#e8f5e9,stroke:#2e7d32
+    style SNAPSHOT fill:#e3f2fd,stroke:#1565c0
+    style LOG fill:#f3e5f5,stroke:#6a1b9a
+                </pre>
+            </div>
+
+            <div class="diagram-explanation">
+                <strong>📊 Diagram Explanation</strong>: Think of a snapshot like taking a photo of the current state. Instead of remembering every single operation that led to x=5, y=3, z=7, we just save "x=5, y=3, z=7" and throw away the old operations. Much more efficient!
+            </div>
+
+            <h3>Benefits of Snapshotting</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Before</th>
+                        <th>After</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>📦 100 log entries (100KB)</td>
+                        <td>📦 Snapshot (10KB)</td>
+                    </tr>
+                    <tr>
+                        <td>📝 Takes 10 seconds to replay</td>
+                        <td>📝 3 new entries (instant)</td>
+                    </tr>
+                    <tr>
+                        <td>💾 Disk usage: HIGH</td>
+                        <td>💾 Disk usage: LOW</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Complete Example -->
+        <section class="section" id="complete-example">
+            <h2>Putting It All Together</h2>
+
+            <h3>A Complete Example: Client Request to Execution</h3>
+            <p>Let's follow a client request through the entire system:</p>
+
+            <p><strong>Initial state:</strong></p>
+            <pre>
+Cluster: 5 servers {S1, S2, S3, S4, S5}
+S1 is leader in term 5
+All servers have entries [1,1][2,2][3,4][4,5]
+commitIndex = 4 on all servers
+</pre>
+
+            <p><strong>Step 1: Client sends request</strong></p>
+            <pre>
+Client → S3: "Execute: x = 10"
+S3: "I'm not the leader. The leader is S1."
+Client → S1: "Execute: x = 10"
+</pre>
+
+            <p><strong>Step 2-8:</strong> The system replicates, commits, and applies the entry across all servers...</p>
+
+            <p><strong>Final state:</strong></p>
+            <pre>
+All servers:
+  Log: [1,1][2,2][3,4][4,5][5,5]
+  commitIndex: 5
+  lastApplied: 5
+  State machine: x = 10
+</pre>
+
+            <h3>What If the Leader Crashes?</h3>
+            <p>If S1 crashes, the followers timeout, start an election, and S3 becomes the new leader. The cluster automatically recovers and continues operating!</p>
+        </section>
+
+        <!-- Key Takeaways -->
+        <section class="section">
+            <div class="key-takeaway">
+                <h2>🎯 Key Takeaways</h2>
+
+                <h3>What Makes RAFT Understandable?</h3>
+                <ol>
+                    <li><strong>Decomposition</strong>: Three independent problems (Leader election, Log replication, Safety)</li>
+                    <li><strong>Strong leader</strong>: Logs only flow from leader to followers</li>
+                    <li><strong>Randomization</strong>: Election timeouts solve split votes elegantly</li>
+                </ol>
+
+                <h3>The Core Ideas</h3>
+                <pre>
+┌─────────────────────────────────────────────────────────┐
+│  RAFT IN ONE SENTENCE:                                   │
+│                                                          │
+│  Elect a leader, let the leader manage the log,         │
+│  replicate to followers, and elect a new leader if      │
+│  the current one fails.                                 │
+└─────────────────────────────────────────────────────────┘
+</pre>
+
+                <h3>The Five Safety Properties (Remember These!)</h3>
+                <ol>
+                    <li><strong>Election Safety</strong>: One leader per term</li>
+                    <li><strong>Leader Append-Only</strong>: Leaders never delete</li>
+                    <li><strong>Log Matching</strong>: Same index+term = identical history</li>
+                    <li><strong>Leader Completeness</strong>: Future leaders have committed entries</li>
+                    <li><strong>State Machine Safety</strong>: Same index = same command on all servers</li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- Practice Problems -->
+        <section class="section">
+            <h2>🧩 Practice Problems</h2>
+
+            <div class="practice-problem">
+                <h3>Problem 1: Understanding Terms</h3>
+                <pre>
+Server A is leader in term 5.
+Server B hasn't heard from A and starts election in term 6.
+Server B sends RequestVote to A.
+
+What does A do?
+</pre>
+
+                <details>
+                    <summary>Show Answer</summary>
+                    <p>A sees term 6 > 5, so:</p>
+                    <ol>
+                        <li>Updates currentTerm to 6</li>
+                        <li>Converts to follower</li>
+                        <li>Evaluates the vote request</li>
+                        <li>Likely grants vote (if B's log is up-to-date)</li>
+                    </ol>
+                </details>
+            </div>
+
+            <div class="practice-problem">
+                <h3>Problem 2: Log Consistency</h3>
+                <pre>
+Leader's log: [1,1][2,1][3,2][4,3]
+Follower's log: [1,1][2,1][3,1]
+
+Leader sends AppendEntries with:
+  prevLogIndex = 3
+  prevLogTerm = 2
+  entries = [{index: 4, term: 3}]
+
+What does the follower do?
+</pre>
+
+                <details>
+                    <summary>Show Answer</summary>
+                    <p>Follower checks index 3:</p>
+                    <ul>
+                        <li>Has entry at index 3: YES</li>
+                        <li>Term matches (follower has term 1, leader says term 2): NO</li>
+                    </ul>
+                    <p><strong>REJECT</strong> the AppendEntries!</p>
+                    <p>Leader will decrement nextIndex and retry with prevLogIndex=2.</p>
+                </details>
+            </div>
+
+            <div class="practice-problem">
+                <h3>Problem 3: Commitment</h3>
+                <pre>
+Leader in term 5 has replicated entry [100, term=4] to 3 out of 5 servers.
+Can the leader commit entry 100?
+</pre>
+
+                <details>
+                    <summary>Show Answer</summary>
+                    <p><strong>NO!</strong> Entry 100 is from term 4 (a previous term).</p>
+                    <p>RAFT never commits entries from previous terms by counting replicas.</p>
+                    <p>The leader must commit an entry from term 5 first, which will indirectly commit entry 100.</p>
+                </details>
+            </div>
+        </section>
+
+        <!-- Further Study -->
+        <section class="section">
+            <h2>📖 Further Study</h2>
+
+            <h3>Implementing RAFT</h3>
+            <p><strong>Start with:</strong></p>
+            <ol>
+                <li>Server state management</li>
+                <li>RequestVote RPC</li>
+                <li>Leader election</li>
+                <li>AppendEntries RPC (heartbeat only)</li>
+                <li>Log replication</li>
+                <li>Safety mechanisms</li>
+            </ol>
+
+            <p><strong>Test thoroughly:</strong></p>
+            <ul>
+                <li>Leader election with crashes</li>
+                <li>Log replication with delays</li>
+                <li>Network partitions</li>
+                <li>Configuration changes</li>
+            </ul>
+
+            <h3>Resources</h3>
+            <ul>
+                <li>Original paper: "In Search of an Understandable Consensus Algorithm"</li>
+                <li>Raft visualization: <a href="https://raft.github.io" target="_blank">raft.github.io</a></li>
+                <li>Reference implementation: Look for open-source RAFT implementations</li>
+                <li>TLA+ specification: Formal verification of RAFT</li>
+            </ul>
+        </section>
+    </div>
+
+    <footer class="footer">
+        <p><strong>Happy learning! Remember: RAFT is designed to be understandable.</strong></p>
+        <p>If something seems complicated, break it down into smaller pieces! 🚀</p>
+        <p style="margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
+            Generated from the RAFT Student's Guide
+        </p>
+    </footer>
+</body>
+</html>
